@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """A script to auto-backup data.
 
 Author: Chunliang Mu
@@ -42,25 +39,25 @@ def _save_bkp_file(
     """
     if compress == 'gzip':
         if action in ['copy', 'Copy', 'cp', 'move', 'Move', 'mv']:
-            if iverbose:
+            if iverbose >= 3:
                 print(f"*   Note:\tgzip-ing '{src_path}' to '{dst_path}'")
             if not dry_run:
                 with open(src_path, 'rb') as src_file:
                     with gzip.open(dst_path, 'wb') as dst_file:
                         dst_file.writelines(src_file)
             #if action in ['move', 'Move', 'mv']:
-            #    if iverbose:
+            #    if iverbose >= 3:
             #        print(f"*   Note:\tRemoving '{src_path}'")
             #    if not dry_run:
             #        os.remove(src_path)
     else:
         if action in ['copy', 'Copy', 'cp']:
-            if iverbose:
+            if iverbose >= 3:
                 print(f"*   Note:\tCopying '{src_path}' to '{dst_path}'")
             if not dry_run:
                 shutil.copy2(src_path, dst_path, follow_symlinks=False)
         elif action in ['move', 'Move', 'mv']:
-            if iverbose:
+            if iverbose >= 3:
                 print(f"*   Note:\tMoving '{src_path}' to '{dst_path}'")
             if not dry_run:
                 shutil.copy2(src_path, dst_path)
@@ -77,8 +74,9 @@ def dir_backup(
     bkp_old_dst_files: {bool, str} = 'gzip',
     bkp_old_dst_files_excl_list: list = ['.git'],
     ignore_list: list = ['__pycache__', '.ipynb_checkpoints'],
-    dry_run: bool = False,
-    iverbose: int = 4,
+    dry_run  : bool = False,
+    top_level: bool = True,
+    iverbose :  int = 4,
 ):
     """Recursively backup data from src to dst.
 
@@ -97,7 +95,7 @@ def dir_backup(
         If True, will not compare src files and dst files (if exist) byte by byte;
 
     dry_run: bool
-        Print what will be done (if iverbose > 0) instead of actually doing.
+        Print what will be done (if iverbose >= 3) instead of actually doing.
 
     bkp_old_dst_files: bool
         Whether or not to backup existing destination files if it is older.
@@ -115,12 +113,16 @@ def dir_backup(
 
     Returns
     -------
-    state: int
-        0 if successful, otherwise non-zero.
+    no_file_checked, no_file_changed
+    no_src_peeked: int
+        No of source files checked by this func
+    no_src_backed: int
+        No of source files backed up (i.e. copied) by this func
     """
 
     # init
-    ans = 0
+    no_src_peeked = 0
+    no_src_backed = 0
     # normalize path
     src_path = os.path.normpath(src_path)
     dst_path = os.path.normpath(dst_path)
@@ -132,8 +134,9 @@ def dir_backup(
         if iverbose:
             print(f"*** Error: dir_backup(...):\n" + \
                   f"\tFile '{src_path}' does not exist.")
-        return -1
+        return no_src_peeked, no_src_backed
     
+    no_src_peeked += 1
     if os.path.isfile(src_path) or os.path.islink(src_path):
         if os.path.islink(src_path):
             # warn
@@ -141,61 +144,80 @@ def dir_backup(
                 print(f"**  Warning: dir_backup(...):\n" + \
                       f"\tWill not backup content in the folder pointed by symbolic link '{src_path}'.")
                 
-        # compare and decide if it's the same file
-        do_copy = True
-        if os.path.lexists(dst_path) and not os.path.isdir(dst_path):
-            if filecmp.cmp(src_path, dst_path):
-                # same file content...
-                do_copy = False
-                if os.path.samefile(src_path, dst_path):
-                    # and is the same exact file! (we don't want that since we want multiple physical copy)
-                    #     check if backup file already existed
+        try:
+            with open(src_path, 'rb'):
+                pass
+        except PermissionError:
+            if iverbose:
+                print(f"*** Error: dir_backup(...):\n" + \
+                      f"\tPermission Error on file '{dst_path}'.")
+        else:
+            # compare and decide if it's the same file
+            do_copy = True
+            if os.path.lexists(dst_path) and not os.path.isdir(dst_path):
+                if filecmp.cmp(src_path, dst_path):
+                    # same file content...
+                    do_copy = False
+                    if os.path.samefile(src_path, dst_path):
+                        # and is the same exact file! (we don't want that since we want multiple physical copy)
+                        #     check if backup file already existed
+                        dst_path_new = _get_bkp_filename(dst_path, bkp_old_dst_files)
+                        if os.path.lexists(dst_path_new) and filecmp.cmp(dst_path, dst_path_new):
+                            pass
+                        elif bkp_old_dst_files:
+                            _save_bkp_file(dst_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, iverbose)
+                elif bkp_old_dst_files:
                     dst_path_new = _get_bkp_filename(dst_path, bkp_old_dst_files)
-                    if os.path.lexists(dst_path_new) and filecmp.cmp(dst_path, dst_path_new):
+                    _save_bkp_file(dst_path, dst_path_new, 'move', dry_run, bkp_old_dst_files, iverbose)
+
+            # now copy
+            if do_copy:
+                try:
+                    _save_bkp_file(src_path, dst_path, 'copy', dry_run, False, iverbose)
+                    no_src_backed += 1
+                except FileNotFoundError:
+                    if iverbose:
+                        print(f"*** Error: dir_backup(...):\n" + \
+                      f"\tCannot copy to '{dst_path}'.")
+                except shutil.SameFileError:
+                    dst_path_new = _get_bkp_filename(src_path, bkp_old_dst_files)
+                    #     check if backup file already existed
+                    if os.path.lexists(dst_path_new) and filecmp.cmp(src_path, dst_path_new):
                         pass
                     else:
-                        _save_bkp_file(dst_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, iverbose)
-            else:
-                dst_path_new = _get_bkp_filename(dst_path, bkp_old_dst_files)
-                _save_bkp_file(dst_path, dst_path_new, 'move', dry_run, bkp_old_dst_files, iverbose)
-
-        # now copy
-        if do_copy:
-            try:
-                _save_bkp_file(src_path, dst_path, 'copy', dry_run, False, iverbose)
-            except FileNotFoundError:
-                if iverbose:
-                    print(f"*** Error: dir_backup(...):\n" + \
-                  f"\tCannot copy to '{dst_path}'.")
-            except shutil.SameFileError:
-                dst_path_new = _get_bkp_filename(src_path, bkp_old_dst_files)
-                #     check if backup file already existed
-                if os.path.lexists(dst_path_new) and filecmp.cmp(src_path, dst_path_new):
-                    pass
-                else:
-                    _save_bkp_file(src_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, iverbose)
+                        _save_bkp_file(src_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, iverbose)
+                        no_src_backed += 1
                 
 
     elif os.path.isdir(src_path):
         # create dst dir if non-existent
         if not os.path.exists(dst_path):
-            if iverbose:
+            if iverbose >= 3:
                 print(f"*   Note:\tCreating Directory '{dst_path}'")
             if not dry_run:
                 os.makedirs(dst_path)
         
         for filename in os.listdir(src_path):
             if filename not in ignore_list:
-                res = dir_backup(
-                    f'{src_path}{os.path.sep}{filename}',
-                    f'{dst_path}{os.path.sep}{filename}',
+                src_path_new = f'{src_path}{os.path.sep}{filename}'
+                dst_path_new = f'{dst_path}{os.path.sep}{filename}'
+                if (iverbose >= 3 and top_level) or (iverbose >= 4 and os.path.isdir(src_path_new)):
+                    print(f"\nWorking on sub-folder {src_path_new}...")
+                    if top_level:
+                        print(f"({no_src_peeked} files looked, {no_src_backed} files backed up so far.\n)")
+                    else:
+                        print()
+                new_src_peeked, new_src_backed = dir_backup(
+                    src_path_new,
+                    dst_path_new,
                     filecmp_shallow   = filecmp_shallow,
                     bkp_old_dst_files = bkp_old_dst_files if filename not in bkp_old_dst_files_excl_list else False, 
                     bkp_old_dst_files_excl_list=bkp_old_dst_files_excl_list,
                     ignore_list=ignore_list,
+                    top_level = False,
                     dry_run=dry_run, iverbose=iverbose,
                     )
-                if res:
-                    ans = 1
-    return ans
+                no_src_peeked += new_src_peeked
+                no_src_backed += new_src_backed
+    return no_src_peeked, no_src_backed
 
