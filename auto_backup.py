@@ -242,7 +242,12 @@ def dir_backup(
                     # archive the entire dir
                     dst_path_new_bkp = _get_bkp_filename_format(dst_path_new, _get_dir_mtime(src_path_new))
                     if not os.path.exists(f'{dst_path_new_bkp}.tar.gz'):
-                        shutil.make_archive(dst_path_new_bkp, format='gztar', root_dir=src_path, base_dir=filename)
+                        if iverbose >= 3:
+                            print(
+                                f"*   Note:\tMaking archive of folder '{filename}' in path '{src_path}'",
+                                f"at file '{dst_path_new_bkp}'.tar.gz")
+                        if not dry_run:
+                            shutil.make_archive(dst_path_new_bkp, format='gztar', root_dir=src_path, base_dir=filename)
                 else:
                     # backup files one by one
                     new_src_peeked, new_src_backed = dir_backup(
