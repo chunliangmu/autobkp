@@ -69,7 +69,7 @@ def _save_bkp_file(
     """
     if compress == 'gzip':
         if action in ['copy', 'Copy', 'cp', 'move', 'Move', 'mv']:
-            if iverbose >= 3:
+            if iverbose:
                 print(f"*   Note:\tgzip-ing '{src_path}' to '{dst_path}'")
             if not dry_run:
                 with open(src_path, 'rb') as src_file:
@@ -82,12 +82,12 @@ def _save_bkp_file(
             #        os.remove(src_path)
     else:
         if action in ['copy', 'Copy', 'cp']:
-            if iverbose >= 3:
+            if iverbose:
                 print(f"*   Note:\tCopying '{src_path}' to '{dst_path}'")
             if not dry_run:
                 shutil.copy2(src_path, dst_path, follow_symlinks=False)
         elif action in ['move', 'Move', 'mv']:
-            if iverbose >= 3:
+            if iverbose:
                 print(f"*   Note:\tMoving '{src_path}' to '{dst_path}'")
             if not dry_run:
                 shutil.copy2(src_path, dst_path)
@@ -223,7 +223,7 @@ def dir_backup(
     elif os.path.isdir(src_path):
         # create dst dir if non-existent
         if not os.path.exists(dst_path):
-            if iverbose >= 3:
+            if iverbose:
                 print(f"*   Note:\tCreating Directory '{dst_path}'")
             if not dry_run:
                 os.makedirs(dst_path)
@@ -242,7 +242,7 @@ def dir_backup(
                     # archive the entire dir
                     dst_path_new_bkp = _get_bkp_filename_format(dst_path_new, _get_dir_mtime(src_path_new))
                     if not os.path.exists(f'{dst_path_new_bkp}.tar.gz'):
-                        if iverbose >= 3:
+                        if iverbose:
                             print(
                                 f"*   Note:\tMaking archive of folder '{filename}' in path '{src_path}'",
                                 f"at file '{dst_path_new_bkp}'.tar.gz")
