@@ -3,6 +3,10 @@
 Author: Chunliang Mu
 """
 
+
+from .log import say, is_verbose
+from .readwrite import json_dump, json_load
+
 import os
 from os.path import sep
 import shutil
@@ -10,6 +14,8 @@ import filecmp
 from datetime import datetime
 import time
 import gzip
+
+
 
 
 def _get_bkp_filename_format(dst_path: str, dst_mtime: float) -> str:
@@ -161,9 +167,8 @@ def dir_backup(
     # safety check: if file exists
     #     lexist() because we want to backup symbolic links as well
     if not os.path.lexists(src_path):
-        if iverbose:
-            print(f"*** Error: dir_backup(...):\n" + \
-                  f"\tFile '{src_path}' does not exist.")
+        if is_verbose(iverbose, 'err'):
+            say('err', 'dir_backup()', iverbose, f"File '{src_path}' does not exist.")
         return no_src_peeked, no_src_backed
     
     no_src_peeked += 1
@@ -263,3 +268,114 @@ def dir_backup(
                     no_src_peeked += new_src_peeked
                     no_src_backed += new_src_backed
     return no_src_peeked, no_src_backed
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def get_file_tree(
+    src_path: str,
+    src_filename: str|None = None,
+    gztar_list : list = ['.git'],
+    ignore_list: list = ['__pycache__', '.ipynb_checkpoints'],
+) -> dict|None:
+    """Scan src_path and Get a dict of the trees of file structures in it.
+
+    Parameters
+    ----------
+    src_path: str
+        File path to source file / folder
+        
+    src_filename: str
+        File name of the source file / folder
+        If None, will infer from src_path
+        
+    gztar_list: list
+        list the folder names matching this list, but not its contents.
+        So it's marked for archives.
+
+    ignore_list: list
+        Ignore files/folders within this list at all.
+        Only check this if src_path points to a folder.
+
+    Returns
+    -------
+    ans: dict
+        Keywords:
+            'type': str
+                'dir', 'file', or 'link'
+            'name': str
+                filename
+            'size': int
+            'mtime_utc': int
+            'sub_files': dict
+                Only exist if 'type'=='dir'
+                same format as this dict
+    """
+    # normalize path
+    src_path = os.path.normpath(src_path)
+    if src_filename is None:
+        src_filename = None
+        raise NotImplementedError
+    
+    ans = {
+        'type': None,
+        'name': None,
+        'size': None,
+        'mtime_utc': None,
+    }
+    
+    # safety check: if file exists
+    #     lexist() because we want to backup symbolic links as well
+    if not os.path.lexists(src_path):
+        if is_verbose(iverbose, 'err'):
+            say('err', 'get_file_tree()', iverbose, f"File '{src_path}' does not exist.")
+        return None
+
+
+    if os.path.isfile(src_path) or os.path.islink(src_path):
+        if os.path.islink(src_path):
+            # warn
+            if is_verbose(iverbose, 'warn'):
+                say('warn', 'get_file_tree()', iverbose,
+                    f"Will not backup content in the folder pointed by symbolic link '{src_path}'.")
+                
+        try:
+            with open(src_path, 'rb'):
+                pass
+        except PermissionError:
+            if is_verbose(iverbose, 'err'):
+                say('err', 'get_file_tree()', iverbose, f"\tPermission Error on file '{dst_path}'.")
+            return None
+        else:
+            ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
+            ans['name'] = src_filename
+            ans['size'] = None
+            ans['mtime_utc'] = None
+            #raise NotImplementedError
+            return ans
+
+    elif os.path.isdir(src_path):
+
+        ans['type'] = 'dir'
+        ans['name'] = src_filename
+        ans['size'] = None
+        ans['mtime_utc'] = None
+        if src_filename not in gztar_list:
+            sub_files_list   = [
+                get_file_tree(f'{src_path}{sep}{filename}', filename)
+                for filename in os.listdir(src_path)
+                if filename not in ignore_list
+            ]
+            ans['sub_files'] = [sub_file for sub_file in sub_files_list if sub_file is not None]
+        #raise NotImplementedError
+        return ans
