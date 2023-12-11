@@ -263,4 +263,3 @@ def dir_backup(
                     no_src_peeked += new_src_peeked
                     no_src_backed += new_src_backed
     return no_src_peeked, no_src_backed
-
