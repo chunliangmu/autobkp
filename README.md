@@ -14,13 +14,12 @@ Requrie python 3.10+ (since I am using the | operator for type hints)
 
 ## Disclaimer
 
-Please note that this library is still under development.
-I am putting the code online in the hope that it would be helpful; but I do NOT guarantee it will work.
-Use it at your own risk!
-I hope it helps.
+This project is a *work in progress*.
+No guarrantee that it will work.
+Use it at your own risk.
+Nevertheless, I hope it helps!
 
 
-----------------
 
 
 ## Dependencies
