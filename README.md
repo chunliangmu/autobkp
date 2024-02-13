@@ -27,6 +27,8 @@ I hope it helps.
 
 - Python libraries:
 	- `python` (version >= 3.10)
+	- `numpy`
+	- `astropy`
 
 
 
