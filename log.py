@@ -9,7 +9,7 @@ Owner: Chunliang Mu
 
 
 
-def is_verbose(verbose: int|bool, verbose_req: None|int|str) -> bool:
+def is_verbose(verbose: int|bool, verbose_req: None|int|str = 1) -> bool:
     """Test if we should be verbose.
 
     Accepted verbose_req input as str: (None or int are always okay)
