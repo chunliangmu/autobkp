@@ -15,7 +15,8 @@ Requrie python 3.10+ (since I am using the | operator for type hints)
 ## Disclaimer
 
 This project is a *work in progress*.
-No guarrantee that it will work.
+Pending major overhaul.
+No guarrantees whatsoever.
 Use it at your own risk.
 Nevertheless, I hope it helps!
 
