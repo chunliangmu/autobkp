@@ -14,7 +14,15 @@ import filecmp
 from datetime import datetime
 import time
 import gzip
+import numpy as np
 
+
+
+
+def _get_timestamp_str(timestamp: float) -> str:
+    """Get the str version of time. Returns value in utc and is semi-human-readable.
+    """
+    return datetime.utcfromtimestamp(timestamp).strftime("%Y%m%d%H%M%S")
 
 
 
@@ -22,7 +30,7 @@ def _get_bkp_filename_format(dst_path: str, dst_mtime: float) -> str:
     """f-string combine dst path and mtime into backup file name.
     """
     dst_path = os.path.normpath(dst_path)
-    dst_mtimestamp = datetime.utcfromtimestamp(min(dst_mtime, time.time())).strftime("%Y%m%d%H%M%S")
+    dst_mtimestamp = _get_timestamp_str(min(dst_mtime, time.time()))
     dst_path_new = f'{dst_path}.bkp{dst_mtimestamp}._bkp_'
     return dst_path_new
 
@@ -46,6 +54,30 @@ def _get_dir_mtime(src_path: str) -> float:
             if new_mtime > mtime:
                 mtime = new_mtime
     return mtime
+
+
+
+def _get_dir_metadata(src_path: str) -> float:
+    """Recursively get the metadata (newest mtime & total size) for a dir.
+
+    Ignores things in symbolic links.
+
+    dst_path: str
+        path to a file. Must not end with '/'. (Does not check that)
+    
+    """
+    data = {
+        'size' : os.path.getsize( src_path),
+        'mtime': os.path.getmtime(src_path),
+    }
+    if os.path.isdir(src_path):
+        for filename in os.listdir(src_path):
+            src_path_new = f'{src_path}{sep}{filename}'
+            new_data = _get_dir_metadata(src_path_new)
+            data['size'] += new_data['size']
+            if new_data['mtime'] > data['mtime']:
+                data['mtime'] = new_data['mtime']
+    return data
 
 
 
@@ -285,23 +317,27 @@ def dir_backup(
 def get_file_tree(
     src_path: str,
     src_filename: str|None = None,
-    gztar_list : list = ['.git'],
-    ignore_list: list = ['__pycache__', '.ipynb_checkpoints'],
+    gztar_list  : set|list = {'.git'},
+    ignore_list : set|list = {'__pycache__', '.ipynb_checkpoints'},
 ) -> dict|None:
-    """Scan src_path and Get a dict of the trees of file structures in it.
+    """Scan src_path and Get a dict of its tree of file structures.
 
     Parameters
     ----------
     src_path: str
         File path to source file / folder
+        No need to include '/' at the end. If you include it, it will be removed.
         
     src_filename: str
         File name of the source file / folder
+        i.e. if src_path == "/home/admin/abc/edf/", then src_filename would be "edf"
         If None, will infer from src_path
         
     gztar_list: list
-        list the folder names matching this list, but not its contents.
+        Skip the content inside any folder with matching names,
+        i.e. only the folder is listed in the tree,
         So it's marked for archives.
+        Will not do anything if it is a file.
 
     ignore_list: list
         Ignore files/folders within this list at all.
@@ -324,16 +360,11 @@ def get_file_tree(
     # normalize path
     src_path = os.path.normpath(src_path)
     if src_filename is None:
-        src_filename = None
-        raise NotImplementedError
-    
-    ans = {
-        'type': None,
-        'name': None,
-        'size': None,
-        'mtime_utc': None,
-    }
-    
+        src_filename = os.path.basename(src_path)
+
+    if src_filename in ignore_list:
+        return None
+        
     # safety check: if file exists
     #     lexist() because we want to backup symbolic links as well
     if not os.path.lexists(src_path):
@@ -341,41 +372,130 @@ def get_file_tree(
             say('err', 'get_file_tree()', iverbose, f"File '{src_path}' does not exist.")
         return None
 
+    
+    ans = {
+        'type' : '',
+        'name' : '',
+        'size' : 0,
+        'gztar': False,    # bool|str for new file name if gzip
+        'mtime': 0.,
+        'mtime_utc': '',
+        #'sub_files': None,
+    }
+
 
     if os.path.isfile(src_path) or os.path.islink(src_path):
         if os.path.islink(src_path):
             # warn
             if is_verbose(iverbose, 'warn'):
                 say('warn', 'get_file_tree()', iverbose,
-                    f"Will not backup content in the folder pointed by symbolic link '{src_path}'.")
+                    f"Will not backup content in the folder pointed by symbolic link '{src_path}'")
                 
         try:
+            # testing if we have read permission
             with open(src_path, 'rb'):
                 pass
         except PermissionError:
             if is_verbose(iverbose, 'err'):
-                say('err', 'get_file_tree()', iverbose, f"\tPermission Error on file '{dst_path}'.")
+                say('err', 'get_file_tree()', iverbose, f"\tPermission Error on file '{src_path}'. Skipping this.")
             return None
         else:
             ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
             ans['name'] = src_filename
-            ans['size'] = None
-            ans['mtime_utc'] = None
-            #raise NotImplementedError
-            return ans
+            ans['size'] = os.path.getsize(src_path)
+            ans['mtime'] = os.path.getmtime(src_path)
 
     elif os.path.isdir(src_path):
 
         ans['type'] = 'dir'
         ans['name'] = src_filename
-        ans['size'] = None
-        ans['mtime_utc'] = None
+        ans['sub_files'] = []
         if src_filename not in gztar_list:
             sub_files_list   = [
-                get_file_tree(f'{src_path}{sep}{filename}', filename)
+                get_file_tree(
+                    f'{src_path}{sep}{filename}', filename,
+                    gztar_list=gztar_list, ignore_list=ignore_list)
                 for filename in os.listdir(src_path)
                 if filename not in ignore_list
             ]
+            # remove invalid files
             ans['sub_files'] = [sub_file for sub_file in sub_files_list if sub_file is not None]
-        #raise NotImplementedError
-        return ans
+            ans['size']      = os.path.getsize(src_path) + int(np.sum([sub_file['size'] for sub_file in sub_files_list]))
+            ans['mtime']     = float(max(os.path.getmtime(src_path), np.max([sub_file['mtime'] for sub_file in sub_files_list])))
+        else:
+            ans['gztar'] = True
+            data = _get_dir_metadata(src_path)
+            ans['size']  = data['size']
+            ans['mtime'] = data['mtime']
+            
+    ans['mtime_utc'] = _get_timestamp_str(ans['mtime'])
+    return ans
+
+
+
+
+
+def backup(
+    src_path: str,
+    dst_path: str,
+    filecmp_shallow: bool = True,
+    gztar_list  : set|list = {'.git'},
+    ignore_list : set|list = {'__pycache__', '.ipynb_checkpoints'},
+    dry_run     : bool = False,
+    top_level   : bool = True,
+    iverbose    :  int = 4,
+):
+    """Backup data from src to dst.
+
+    New backup function!
+
+    WARNING: SYMBOLIC LINKS WON'T BE FOLLOWED.
+    
+    
+    Parameters
+    ----------
+    src_path: str
+        Path to the source files. Could point to one file or one directory.
+
+    dst_path: str
+        Path to the backup destination where files will be stored. Could point to one file or one directory.
+
+    filecmp_shallow: bool
+        If True, will not compare src files and dst files (if exist) byte by byte;
+
+    dry_run: bool
+        Print what will be done (if iverbose >= 3) instead of actually doing.
+
+    bkp_old_dst_files: bool
+        Whether or not to backup existing destination files if it is older.
+        If == 'gzip', will compress the file while saving.
+
+    gztar_list: list
+        make an archive for folder names matching this list.
+
+    ignore_list: list
+        Do not backup files/folders within this list at all.
+        Only check this if src_path points to a folder.
+
+    iverbose: int
+        Wehther errors, warnings, notes, and debug info should be printed on screen. 
+
+    Returns
+    -------
+    no_file_checked, no_file_changed
+    no_src_peeked: int
+        No of source files checked by this func
+    no_src_backed: int
+        No of source files backed up (i.e. copied) by this func
+    """
+    
+    raise NotImplementedError
+
+    # normalize path
+    src_path = os.path.normpath(src_path)
+    dst_path = os.path.normpath(dst_path)
+    
+    new_file_tree = get_file_tree(src_path, gztar_list=gztar_list, ignore_list=ignore_list)
+
+    
+
