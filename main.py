@@ -319,7 +319,7 @@ def get_file_tree(
     src_filename: str|None = None,
     gztar_list  : set|list = {'.git'},
     ignore_list : set|list = {'__pycache__', '.ipynb_checkpoints'},
-) -> dict|None:
+) -> tuple[str, dict]|None:
     """Scan src_path and Get a dict of its tree of file structures.
 
     Parameters
@@ -345,13 +345,13 @@ def get_file_tree(
 
     Returns
     -------
-    ans: dict
+    filetree: dict
         Keywords:
             'type': str
                 'dir', 'file', or 'link'
-            'name': str
-                filename
             'size': int
+            'gztar': bool|str (str for filename filetype type suffix)
+            'mtime': float
             'mtime_utc': int
             'sub_files': dict
                 Only exist if 'type'=='dir'
@@ -375,9 +375,9 @@ def get_file_tree(
     
     ans = {
         'type' : '',
-        'name' : '',
+        #'name' : '',
         'size' : 0,
-        'gztar': False,    # bool|str for new file name if gzip
+        'gztar': False,    # str for filename filetype type suffix
         'mtime': 0.,
         'mtime_utc': '',
         #'sub_files': None,
@@ -401,14 +401,14 @@ def get_file_tree(
             return None
         else:
             ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
-            ans['name'] = src_filename
+            #ans['name'] = src_filename
             ans['size'] = os.path.getsize(src_path)
             ans['mtime'] = os.path.getmtime(src_path)
 
     elif os.path.isdir(src_path):
 
         ans['type'] = 'dir'
-        ans['name'] = src_filename
+        #ans['name'] = src_filename
         ans['sub_files'] = []
         if src_filename not in gztar_list:
             sub_files_list   = [
@@ -419,9 +419,14 @@ def get_file_tree(
                 if filename not in ignore_list
             ]
             # remove invalid files
-            ans['sub_files'] = [sub_file for sub_file in sub_files_list if sub_file is not None]
-            ans['size']      = os.path.getsize(src_path) + int(np.sum([sub_file['size'] for sub_file in sub_files_list]))
-            ans['mtime']     = float(max(os.path.getmtime(src_path), np.max([sub_file['mtime'] for sub_file in sub_files_list])))
+            #ans['sub_files'] = [sub_file for sub_file in sub_files_list if sub_file is not None]
+            ans['sub_files'] = {sub_file[0]: sub_file[1] for sub_file in sub_files_list if sub_file is not None}
+            ans['size']      = os.path.getsize(src_path) + int(np.sum([
+                ans['sub_files'][sub_filename]['size'] for sub_filename in ans['sub_files'].keys()
+            ]))
+            ans['mtime']     = float(max(os.path.getmtime(src_path), np.max([
+                ans['sub_files'][sub_filename]['mtime'] for sub_filename in ans['sub_files'].keys()
+            ])))
         else:
             ans['gztar'] = True
             data = _get_dir_metadata(src_path)
@@ -429,7 +434,7 @@ def get_file_tree(
             ans['mtime'] = data['mtime']
             
     ans['mtime_utc'] = _get_timestamp_str(ans['mtime'])
-    return ans
+    return src_filename, ans
 
 
 
@@ -494,8 +499,16 @@ def backup(
     # normalize path
     src_path = os.path.normpath(src_path)
     dst_path = os.path.normpath(dst_path)
-    
-    new_file_tree = get_file_tree(src_path, gztar_list=gztar_list, ignore_list=ignore_list)
 
+    metadata = {}
     
+    ans = get_file_tree(src_path, gztar_list=gztar_list, ignore_list=ignore_list)
+    new_file_tree = {ans[0]: ans[1]}
+
+    with open(f"{dst_path}/_bkp_meta_/filetree.bkp{_get_timestamp_str(time.time())}.json", 'w') as f:
+        # open to-be-saved file first to make sure it is okay for saving
+
+        
+        # save data
+        json_dump(new_file_tree, f, metadata)
 
