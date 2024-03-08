@@ -499,13 +499,15 @@ def backup(
     # normalize path
     src_path = os.path.normpath(src_path)
     dst_path = os.path.normpath(dst_path)
+    src_filename = os.path.basename(src_path)
 
     metadata = {}
+
     
     ans = get_file_tree(src_path, gztar_list=gztar_list, ignore_list=ignore_list)
     new_file_tree = {ans[0]: ans[1]}
 
-    with open(f"{dst_path}/_bkp_meta_/filetree.bkp{_get_timestamp_str(time.time())}.json", 'w') as f:
+    with open(f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{_get_timestamp_str(time.time())}.json", 'w') as f:
         # open to-be-saved file first to make sure it is okay for saving
 
         
