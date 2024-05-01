@@ -29,6 +29,7 @@ Nevertheless, I hope it helps!
 	- `python3` (version >= 3.10)
 	- `numpy`
 	- `astropy`
+	- `h5py`
 
 
 
