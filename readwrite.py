@@ -20,11 +20,14 @@ from .log import say, is_verbose
 import sys
 import json
 import h5py
+import gzip
 import numpy as np
 from datetime import datetime
 from astropy import units
 import struct
 import io
+import os
+import shutil
 
 
 CURRENT_VERSION = '0.5'
@@ -85,6 +88,25 @@ def get_str_from_astropyUnit(unit: units.Unit) -> str:
     return unit.to_string()
 
 
+
+
+def get_compress_mode_from_filename(filename: str, verbose: int = 3) -> str|bool:
+    """Get the compress mode."""
+    if not isinstance(filename, str):
+        if is_verbose(verbose, 'fatal'):
+            raise TypeError(f"Input filename should be of type str, but is of type {type(filename)=}.")
+        return False
+    _, ext = os.path.splitext(filename)
+
+    if   ext in {  '.gz',  '.tgz'}:
+        return 'gzip'
+    elif ext in {'.hdf5', '.json'}:
+        return False
+    # fallback option
+    elif is_verbose(verbose, 'warn'):
+        say('warn', None, verbose,
+            f"Unrecognized file extension {ext}. Proceeding without compression.")
+        return False
 
 
 
@@ -702,6 +724,7 @@ def hdf5_open(
     filename: str,
     filemode: str = 'a',
     metadata: None|dict = None,
+    compress: None|bool = None,
     verbose : int = 3,
 ) -> h5py.File:
     """Open a hdf5 file.
@@ -711,11 +734,62 @@ def hdf5_open(
 
     You can write to sub groups within one file by running
         hdf5_dump(obj, fp.create_group([group_name]))
+
+
+    Parameters
+    ----------
+    compress: None | bool | 'gzip'
+        if the file is compressed.
+        if None, will guess from file name.
+        if is True, will use 'gzip'.
+        Will do nothing if fp is not of type str.
     """
+    # compression
+    if compress is None and isinstance(filename, str):
+        compress = get_compress_mode_from_filename(filename)
+    if compress:
+        if   filemode in {'r'}:
+            filename = gzip.open(filename, f'{filemode[0]}b')
+        elif filemode in {'a'}:
+            # decompress whole file before writing
+            filename = gzip.open(filename, f'{filemode[0]}b')
+            filename_root, ext = os.path.splitext(filename)
+            if ext not in {'.gz'} and is_verbose(verbose, 'fatal'):
+                raise ValueError(f"{filename=} should end with extension '.gz'.")
+            with gzip.open(filename, 'rb') as f_in, open(filename_root, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            filename = filename_root
+            if is_verbose(verbose, 'note'):
+                say('note', None, f"Remember to manually compress the file, or use hdf5_close()")
+        elif filemode in {'w', 'x'}:
+            filename_root, ext = os.path.splitext(filename)
+            if ext in {'.gz'}:
+                filename = filename_root
+            if is_verbose(verbose, 'note'):
+                say('note', None, f"Remember to manually compress the file, or use hdf5_close()")
+        elif is_verbose(verbose, 'fatal'):
+            raise ValueError(f"Unrecognized {filemode=}")
+    
+    
     fp = h5py.File(filename, mode=filemode)
     if metadata is not None:
         _hdf5_dump_sub({}, fp, metadata, add_metadata=True, verbose=verbose)
     return fp
+
+
+
+
+
+def hdf5_close(
+    fp      : h5py.File,
+    compress: None|bool = None,
+    verbose : int = 3,
+) -> None:
+    fp.close()
+    if compress is None or compress:
+        raise NotImplementedError("Compression in this func not yet implemented")
+
+
 
 
 
@@ -747,9 +821,12 @@ def hdf5_dump(
     obj     : dict,
     fp      : str | h5py.File | h5py.Group,
     metadata: None| dict = None,
+    compress: None| bool | str = None,
     verbose : int = 3,
 ) -> None:
     """Dump obj to file-like fp as a hdf5 file in my custom format with support of numpy arrays etc.
+
+    *** WILL OVERWRITE EXISTING FILES ***
 
     Suitable for storing medium/large machine-readable files.
 
@@ -793,6 +870,12 @@ def hdf5_dump(
     metadata: dict | None
         meta data to be added to file. The code will also save some of its own metadata.
         set it to None to disable this feature.
+
+    compress: None | bool | 'gzip'
+        if the file is compressed.
+        if None, will guess from file name.
+        if is True, will use 'gzip'.
+        Will do nothing if fp is not of type str.
         
     verbose: int
         How much erros, warnings, notes, and debug info to be print on screen.
@@ -800,10 +883,36 @@ def hdf5_dump(
     if metadata is None:
         metadata = {}
     if isinstance(fp, str):
+        
+        # init
+        if compress is None:
+            compress = get_compress_mode_from_filename(fp)
+        filename_root, ext = os.path.splitext(fp)
+        if not compress or ext not in {'.gz'}:
+            filename_root = fp
         if is_verbose(verbose, 'note'):
-            say('note', None, verbose, f"Writing to {fp} (will OVERWRITE if file already exist.)")
-        with h5py.File(fp, mode='w') as f:
+            say('note', None, verbose,
+                f"Writing to {filename_root}  (will OVERWRITE if file already exist.; {compress=})")
+        # open & dump
+        with h5py.File(filename_root, mode='w') as f:
             _hdf5_dump_sub(obj, f, metadata, add_metadata=True, verbose=verbose)
+            
+        # compress
+        if compress:
+            #if compress in {'gzip'}:
+            if is_verbose(verbose, 'note'):
+                say('note', None, verbose,
+                    f"Compressing and saving to {filename_root}.gz;",
+                    f"Deleting {filename_root}",
+                )
+            with open(filename_root, 'rb') as f_in, gzip.open(f"{filename_root}.gz", 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            os.remove(filename_root)
+            #else:
+            #    if is_verbose(verbose, 'warn'):
+            #        say('warn', None, f"Unrecognized compress mode {compress=}, will read as if compress=False")
+
+                
     elif isinstance(fp, h5py.Group):
         _hdf5_dump_sub(obj, fp, metadata, add_metadata=True, verbose=verbose)
     elif is_verbose(verbose, 'fatal'):
@@ -817,6 +926,7 @@ def hdf5_dump(
 def hdf5_load(
     fp      : str | h5py.File | h5py.Group,
     load_metadata : bool = False,
+    compress: None| bool | str = None,
     verbose : int = 3,
 ) -> None:
     """Load data from h5py file in my custom format.
@@ -829,6 +939,12 @@ def hdf5_load(
         
     load_metadata : bool
         Do NOT load meta data from loaded dict.
+
+    compress: None | bool | 'gzip'
+        if the file is compressed.
+        if None, will guess from file name.
+        if is True, will use 'gzip'.
+        Will do nothing if fp is not of type str.
         
     verbose: int
         How much erros, warnings, notes, and debug info to be print on screen.
@@ -838,10 +954,28 @@ def hdf5_load(
     obj: original data
     """
     if isinstance(fp, str):
+        
+        # init
+        if compress is None:
+            compress = get_compress_mode_from_filename(fp)
         if is_verbose(verbose, 'note'):
-            say('note', None, verbose, f"Reading from {fp}")
-        with h5py.File(fp, mode='r') as f:
-            obj = _hdf5_load_sub({}, f, load_metadata=load_metadata, verbose=verbose)
+            say('note', None, verbose, f"Reading from {fp}  ({compress=})")
+
+        # open & read
+        do_compress = False
+        if compress:
+            #if compress in {'gzip'}:
+            do_compress = True
+            with h5py.File(gzip.open(fp, 'rb'), mode='r') as f:
+                obj = _hdf5_load_sub({}, f, load_metadata=load_metadata, verbose=verbose)
+            #else:
+            #    if is_verbose(verbose, 'warn'):
+            #        say('warn', None, f"Unrecognized compress mode {compress=}, will read as if compress=False")
+        if not do_compress:
+            # no compression
+            with h5py.File(fp, mode='r') as f:
+                obj = _hdf5_load_sub({}, f, load_metadata=load_metadata, verbose=verbose)
+                
     elif isinstance(fp, h5py.Group):
         obj = _hdf5_load_sub({}, fp, load_metadata=load_metadata, verbose=verbose)
     elif is_verbose(verbose, 'fatal'):
