@@ -139,7 +139,7 @@ def dir_backup(
     src_path: str,
     dst_path: str,
     filecmp_shallow: bool = True,
-    bkp_old_dst_files: {bool, str} = 'gzip',
+    bkp_old_dst_files: bool | str = 'gzip',
     gztar_list : list = ['.git'],
     ignore_list: list = ['__pycache__', '.ipynb_checkpoints'],
     dry_run  : bool = False,
