@@ -695,7 +695,7 @@ def backup(
 
     # do backup
     _backup_sub(
-        src_filepath, dst_filepath,
+        src_path, dst_path,
         new_filetree = new_filetree,
         old_filetree = old_filetree,
         filecmp_shallow = filecmp_shallow,
