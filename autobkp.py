@@ -693,16 +693,16 @@ def backup(
             say('note', None, verbose, f"Read old filetree data from '{latest_filetree_filename}'.")
     
 
-
     # do backup
-    raise NotImplementedError
+    _backup_sub(
+        src_filepath, dst_filepath,
+        new_filetree = new_filetree,
+        old_filetree = old_filetree,
+        filecmp_shallow = filecmp_shallow,
+        dry_run = dry_run,
+        verbose = verbose,
+    )
     
-
-
-
-
-    
-
 
     # update filetree
     if is_verbose(verbose, 'note'):
