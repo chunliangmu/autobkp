@@ -573,7 +573,7 @@ def _backup_sub(
                     dst_filepath = dst_filepath_base
                     
                     # create dst dir if non-existent
-                    if not (os.path.exists(dst_filepath) and os.isdir(dst_filepath)):
+                    if not (os.path.exists(dst_filepath) and os.path.isdir(dst_filepath)):
                         if is_verbose(verbose, 'note'):
                             say('note', None, verbose, f"Creating Directory '{dst_filepath}'")
                         if not dry_run:
@@ -708,7 +708,7 @@ def backup(
 
 
     # create backup dir if not existing
-    if not (os.path.exists(dst_filepath) and os.isdir(dst_filepath)):
+    if not (os.path.exists(dst_filepath) and os.path.isdir(dst_filepath)):
         if is_verbose(verbose, 'note'):
             say('note', None, verbose, f"Creating Directory '{dst_filepath}'")
         if not dry_run:
