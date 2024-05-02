@@ -454,8 +454,8 @@ def backup(
     if is_verbose(verbose, 'note'):
         say('note', None, verbose,
             f"\n\n\tBeginning backup ({dry_run=}).\n\n",
-            f"{src_path}= ",
-            f"{dst_filepath}= ",
+            f"{src_path=}",
+            f"{dst_filepath=}",
             "\n",
             "Scanning file tree...\t",
         )
