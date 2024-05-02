@@ -5,7 +5,7 @@ Author: Chunliang Mu
 
 
 from .log import say, is_verbose
-from .readwrite import json_dump, json_load
+from .readwrite import json_dump, json_load, JSONDecodeError
 
 import os
 from os.path import sep
@@ -19,10 +19,30 @@ import numpy as np
 
 
 
+
 def _get_timestamp_str(timestamp: float) -> str:
     """Get the str version of time. Returns value in utc and is semi-human-readable.
     """
     return datetime.utcfromtimestamp(timestamp).strftime("%Y%m%d%H%M%S")
+
+
+def _get_timestamp_int(timestamp: float) -> int:
+    """Get the int version of time. Returns value in utc and is semi-human-readable.
+    """
+    return int(_get_timestamp_str(timestamp))
+
+
+def _get_timestamp_str_from_int(timestamp_int: int, verbose:int=4) -> str:
+    """Get the str version of time. Returns value in utc and is semi-human-readable.
+    """
+    #return datetime.utcfromtimestamp(timestamp).strftime("%Y%m%d%H%M%S")
+    if isinstance(timestamp_int, int):
+        return f"{timestamp_int:014d}"
+    else:
+        if is_verbose(verbose, 'fatal'):
+            raise TypeError(
+                "input timestamp should be of int type. Did you meant to use _get_timestamp_str() instead of _get_timestamp_str_from_int()?")
+
 
 
 
@@ -36,20 +56,21 @@ def _get_bkp_filename_format(dst_path: str, dst_mtime: float) -> str:
 
 
 
-def _get_dir_mtime(src_path: str) -> float:
-    """Recursively get the newest mtime for a dir.
-
-    dst_path: str
-        path to a file. Must not end with '/'. (Does not check that)
+if False:
+    def _get_dir_mtime(src_path: str) -> float:
+        """Recursively get the newest mtime for a dir.
     
-    """
-    mtime = os.path.getmtime(src_path)
-    if os.path.isdir(src_path):
-        for filename in os.listdir(src_path):
-            new_mtime = _get_dir_mtime(f'{src_path}{sep}{filename}')
-            if new_mtime > mtime:
-                mtime = new_mtime
-    return mtime
+        dst_path: str
+            path to a file. Must not end with '/'. (Does not check that)
+        
+        """
+        mtime = os.path.getmtime(src_path)
+        if os.path.isdir(src_path):
+            for filename in os.listdir(src_path):
+                new_mtime = _get_dir_mtime(f'{src_path}{sep}{filename}')
+                if new_mtime > mtime:
+                    mtime = new_mtime
+        return mtime
 
 
 
@@ -138,8 +159,8 @@ def _save_bkp_file(
             #    if not dry_run:
             #        os.remove(src_path)
             return
-    if is_verbose(verbose, 'fatal'):
-        raise NotImplementedError(f"Unrecognized {action=}")
+    if is_verbose(verbose, 'err'):
+        say('err', None, verbose, f"Unrecognized {action=}")
     return
 
 
@@ -322,12 +343,13 @@ def dir_backup(
 
 
 
-def get_file_tree(
+def get_filetree(
     src_path: str,
-    src_filename: str|None = None,
-    gztar_list  : set|list = {'.git'},
-    ignore_list : set|list = {'__pycache__', '.ipynb_checkpoints'},
-) -> tuple[str, dict]|None:
+    src_filename: None|str = None,
+    gztar_list  : set[str]|list[str] = {'.git'},
+    ignore_list : set[str]|list[str] = {'__pycache__', '.ipynb_checkpoints'},
+    verbose     : int  = 4,
+) -> None|tuple[str, dict]:
     """Scan src_path and Get a dict of its tree of file structures.
 
     Parameters
@@ -340,6 +362,8 @@ def get_file_tree(
         File name of the source file / folder
         i.e. if src_path == "/home/admin/abc/edf/", then src_filename would be "edf"
         If None, will infer from src_path
+        if src_path == "../..", then src_filename would be inferred to be ".."
+            in which case, you might want to manually set it to be whatever you prefer
         
     gztar_list: list
         Skip the content inside any folder with matching names,
@@ -351,15 +375,17 @@ def get_file_tree(
         Ignore files/folders within this list at all.
         Only check this if src_path points to a folder.
 
-    Returns
+    verbose: int
+        Wehther errors, warnings, notes, and debug info should be printed on screen. 
+
+    Returns: src_filename, filetree
     -------
     filetree: dict
         Keywords:
             'type': str
                 'dir', 'file', or 'link'
             'size': int
-            'gztar': bool|str (str for filename filetype type suffix)
-            'mtime': float
+            'use_gztar': bool|str (str for filename filetype type suffix)
             'mtime_utc': int
             'sub_files': dict
                 Only exist if 'type'=='dir'
@@ -377,17 +403,17 @@ def get_file_tree(
     #     lexist() because we want to backup symbolic links as well
     if not os.path.lexists(src_path):
         if is_verbose(verbose, 'err'):
-            say('err', 'get_file_tree()', verbose, f"File '{src_path}' does not exist.")
+            say('err', None, verbose, f"File '{src_path}' does not exist.")
         return None
 
     
     ans = {
         'type' : '',
-        #'name' : '',
+        #'name' : '',    # not used
         'size' : 0,
-        'gztar': False,    # str for filename filetype type suffix
-        'mtime': 0.,
-        'mtime_utc': '',
+        'use_gztar': False,    # str for filename filetype type suffix
+        #'mtime' : 0.,   # not used
+        'mtime_utc': 0,
         #'sub_files': None,
     }
 
@@ -396,31 +422,33 @@ def get_file_tree(
         if os.path.islink(src_path):
             # warn
             if is_verbose(verbose, 'warn'):
-                say('warn', 'get_file_tree()', verbose,
+                say('warn', None, verbose,
                     f"Will not backup content in the folder pointed by symbolic link '{src_path}'")
                 
-        try:
-            # testing if we have read permission
-            with open(src_path, 'rb'):
-                pass
-        except PermissionError:
+        #try:
+        #    # testing if we have read permission
+        #    with open(src_path, 'rb'):
+        #        pass
+        #except PermissionError:
+        if not os.access(src_path, os.R_OK):
             if is_verbose(verbose, 'err'):
-                say('err', 'get_file_tree()', verbose, f"\tPermission Error on file '{src_path}'. Skipping this.")
+                say('err', None, verbose, f"\tPermission Error on file '{src_path}': No read access. Skipping this.")
             return None
         else:
             ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
             #ans['name'] = src_filename
             ans['size'] = os.path.getsize(src_path)
-            ans['mtime'] = os.path.getmtime(src_path)
+            #ans['mtime'] = os.path.getmtime(src_path)
+            ans['mtime_utc'] = _get_timestamp_int(os.path.getmtime(src_path))
 
     elif os.path.isdir(src_path):
 
         ans['type'] = 'dir'
         #ans['name'] = src_filename
-        ans['sub_files'] = []
+        ans['sub_files'] = {}
         if src_filename not in gztar_list:
             sub_files_list   = [
-                get_file_tree(
+                get_filetree(
                     f'{src_path}{sep}{filename}', filename,
                     gztar_list=gztar_list, ignore_list=ignore_list)
                 for filename in os.listdir(src_path)
@@ -432,32 +460,64 @@ def get_file_tree(
             ans['size']      = os.path.getsize(src_path) + int(np.sum([
                 ans['sub_files'][sub_filename]['size'] for sub_filename in ans['sub_files'].keys()
             ]))
-            ans['mtime']     = float(max(os.path.getmtime(src_path), np.max([
-                ans['sub_files'][sub_filename]['mtime'] for sub_filename in ans['sub_files'].keys()
+            ans['mtime_utc'] = int(max(_get_timestamp_int(os.path.getmtime(src_path)), np.max([
+                ans['sub_files'][sub_filename]['mtime_utc'] for sub_filename in ans['sub_files'].keys()
             ])))
         else:
-            ans['gztar'] = True
+            ans['use_gztar'] = True
             data = _get_dir_metadata(src_path)
             ans['size']  = data['size']
-            ans['mtime'] = data['mtime']
+            ans['mtime_utc'] = _get_timestamp_int(data['mtime'])
             
-    ans['mtime_utc'] = _get_timestamp_str(ans['mtime'])
-    return src_filename, ans
+    #ans['mtime_utc'] = _get_timestamp_int(ans['mtime'])
+    
+    filetree = ans
+    return src_filename, filetree
 
+
+
+
+
+def _backup_sub(
+    src_path    : str,
+    dst_path    : str,
+    new_filetree: dict,
+    old_filetree: dict,
+    filecmp_shallow : bool,
+    dry_run     : bool,
+    verbose     : int,
+):
+    """Sub process for the backup function.
+    
+    Will compress and save everything to new destination.
+    """
+
+    for key in new_filetree.keys():
+        do_backup = True
+        # decide if the file has already been backed up
+        if key in old_filetree.keys():
+            if filecmp_shallow:
+                if (new_filetree[key]['mtime_utc'] == old_filetree[key]['mtime_utc']
+                    and new_filetree[key]['size' ] == old_filetree[key]['size']):
+                    do_backup = False
+            elif is_verbose(verbose, 'fatal'):
+                raise NotImplementedError("filecmp_shallow=True has not yet been implemented.")
+    
+    raise NotImplementedError
 
 
 
 
 def backup(
-    src_path: str,
-    dst_path: str,
-    filecmp_shallow: bool = True,
-    gztar_list  : set|list = {'.git'},
-    ignore_list : set|list = {'__pycache__', '.ipynb_checkpoints'},
+    src_path    : str,
+    dst_path    : str,
+    src_filename: None|str = None,
+    filecmp_shallow : bool = True,
+    gztar_list  : set[str]|list[str] = {'.git'},
+    ignore_list : set[str]|list[str] = {'__pycache__', '.ipynb_checkpoints'},
     dry_run     : bool = False,
-    top_level   : bool = True,
-    verbose    :  int = 4,
-):
+    verbose     : int  = 4,
+) -> dict:
     """Backup data from src to dst.
 
     New backup function!
@@ -472,9 +532,17 @@ def backup(
 
     dst_path: str
         Path to the backup destination where files will be stored. Could point to one file or one directory.
-
+        
+    src_filename: str
+        File name of the source file / folder
+        i.e. if src_path == "/home/admin/abc/edf/", then src_filename would be "edf"
+        If None, will infer from src_path
+        if src_path == "../..", then src_filename would be inferred to be ".."
+            in which case, you might want to manually set it to be whatever you prefer
+            
     filecmp_shallow: bool
         If True, will not compare src files and dst files (if exist) byte by byte;
+            They will be considered true if they have the same size and modification time.
 
     dry_run: bool
         Print what will be done (if verbose >= 3) instead of actually doing.
@@ -495,30 +563,68 @@ def backup(
 
     Returns
     -------
-    no_file_checked, no_file_changed
-    no_src_peeked: int
-        No of source files checked by this func
-    no_src_backed: int
-        No of source files backed up (i.e. copied) by this func
+    filetree: dict
+        See get_filetree() for format.
     """
-    
-    raise NotImplementedError
 
     # normalize path
     src_path = os.path.normpath(src_path)
     dst_path = os.path.normpath(dst_path)
-    src_filename = os.path.basename(src_path)
-
+    if src_filename is None:
+        src_filename = os.path.basename(src_path)
     metadata = {}
 
     
-    ans = get_file_tree(src_path, gztar_list=gztar_list, ignore_list=ignore_list)
-    new_file_tree = {ans[0]: ans[1]}
+    # scan the folder/file to get the filetree
+    ans = get_filetree(src_path, src_filename=src_filename, gztar_list=gztar_list, ignore_list=ignore_list)
+    new_filetree = {ans[0]: ans[1]}
 
-    with open(f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{_get_timestamp_str(time.time())}.json", 'w') as f:
-        # open to-be-saved file first to make sure it is okay for saving
 
-        
-        # save data
-        json_dump(new_file_tree, f, metadata)
+    # save new filetree
+    new_filetree_filename    = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{_get_timestamp_str(time.time())}.json"
+    if is_verbose(verbose, 'note'):
+        say('note', None, verbose, f"Writing file tree data to '{new_filetree_filename}'")
+    if not dry_run:
+        with open(new_filetree_filename, 'w') as f:
+            json_dump(new_filetree, f, metadata)
 
+    
+    # read old filetree
+    latest_filetree_filename = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.json"
+    try:
+        with open(latest_filetree_filename, 'r') as f:
+            old_filetree = json_load(f)
+    except JSONDecodeError:
+        old_filetree = {}
+        if is_verbose(verbose, 'err'):
+            say('err', None, verbose, "Corrupted old filetree data. Will ignore old file tree and backup EVERYTHING.")
+    except FileNotFoundError:
+        old_filetree = {}
+        if is_verbose(verbose, 'warn'):
+            say('warn', None, verbose, "No old filetree data found. Will create one.")
+    else:
+        if is_verbose(verbose, 'note'):
+            say('note', None, verbose, f"Read old filetree data from '{latest_filetree_filename}'.")
+    
+
+
+    # do backup
+    raise NotImplementedError
+    
+
+
+
+
+    
+
+
+    # update filetree
+    if is_verbose(verbose, 'note'):
+        say('note', None, verbose, f"Overwriting file tree data from '{new_filetree_filename}' to '{latest_filetree_filename}'")
+    if not dry_run:
+        shutil.copy2(new_filetree_filename, latest_filetree_filename)
+
+    if is_verbose(verbose, 'note'):
+        say('note', None, verbose, f"\t--- All done ---")
+
+    return new_filetree
