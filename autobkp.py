@@ -265,7 +265,7 @@ def get_filetree(
             ]))
             ans['mtime_utc'] = int(max(_get_timestamp_int(os.path.getmtime(src_path)), np.max([
                 ans['sub_files'][sub_filename]['mtime_utc'] for sub_filename in ans['sub_files'].keys()
-            ]), initial=0))
+            ], initial=0)))
         else:
             ans['use_gztar'] = True
             data = _get_dir_metadata(src_path)
