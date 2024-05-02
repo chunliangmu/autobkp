@@ -451,6 +451,15 @@ def backup(
     dst_filepath = f'{dst_path}{sep}{src_filename}'
     metadata = {}
 
+    if is_verbose(verbose, 'note'):
+        say('note', None, verbose,
+            f"\n\n\tBeginning backup ({dry_run=}).\n\n",
+            f"{src_path}= ",
+            f"{dst_filepath}= ",
+            "\n",
+            "Scanning file tree...\t",
+        )
+
     
     # scan the folder/file to get the filetree
     ans = get_filetree(src_path, src_filename=src_filename, gztar_list=gztar_list, ignore_list=ignore_list)
@@ -468,6 +477,11 @@ def backup(
     
     # read old filetree
     latest_filetree_filename = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.json"
+    if is_verbose(verbose, 'note'):
+        say('note', None, verbose,
+            f"Reading file tree data from '{latest_filetree_filename}'",
+            f"Note that you can delete that file to force the code to re-backup everything.",
+        )
     try:
         with open(latest_filetree_filename, 'r') as f:
             old_filetree = json_load(f)
@@ -504,6 +518,11 @@ def backup(
         if not dry_run:
             os.makedirs(dst_filepath)
 
+    if is_verbose(verbose, 'note'):
+        say('note', None, verbose,
+            "Filetree read complete.",
+            f"\n\n\tBeginning backup...\n\n",
+        )
 
     
     # do backup
