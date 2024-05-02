@@ -19,6 +19,7 @@ from .log import say, is_verbose
 #  import (general)
 import sys
 import json
+from json import JSONDecodeError
 import h5py
 import gzip
 import numpy as np
