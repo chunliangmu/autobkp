@@ -26,7 +26,9 @@ def is_verbose(verbose: int|bool, verbose_req: None|int|str = 1) -> bool:
     if verbose_req is None or isinstance(verbose, bool):
         return verbose
     elif isinstance(verbose_req, str):
-        if   verbose_req in {'fatal', 'err', 'error', 'Error'}:
+        if   verbose_req in {'fatal'}:
+            verbose_req = 0
+        elif verbose_req in {'err', 'error', 'Error'}:
             verbose_req = 1
         elif verbose_req in {'warn', 'warning', 'Warn', 'Warning'}:
             verbose_req = 2
