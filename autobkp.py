@@ -46,11 +46,7 @@ def _get_dir_mtime(src_path: str) -> float:
     mtime = os.path.getmtime(src_path)
     if os.path.isdir(src_path):
         for filename in os.listdir(src_path):
-            src_path_new = f'{src_path}{sep}{filename}'
-            if os.path.isdir(src_path_new):
-                new_mtime = _get_dir_mtime(src_path_new)
-            else:
-                new_mtime = os.path.getmtime(src_path_new)
+            new_mtime = _get_dir_mtime(f'{src_path}{sep}{filename}')
             if new_mtime > mtime:
                 mtime = new_mtime
     return mtime
