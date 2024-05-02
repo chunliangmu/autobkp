@@ -658,7 +658,7 @@ def backup(
     dst_path = os.path.normpath(dst_path)
     if src_filename is None:
         src_filename = os.path.basename(src_path)
-    dst_filepath = f'{dst_path}{sep}{fname}'
+    dst_filepath = f'{dst_path}{sep}{src_filename}'
     metadata = {}
 
     
