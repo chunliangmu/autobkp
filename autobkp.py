@@ -699,18 +699,20 @@ def backup(
     old_filetree_dict = {}
     if src_filename in old_filetree.keys() and 'sub_files' in old_filetree[src_filename].keys():
         old_filetree_dict = old_filetree[src_filename]['sub_files']
-    elif len(old_filetree.keys()) == 1:
-        key = [k for k in old_filetree.keys()][0]
-        if 'sub_files' in old_filetree[key].keys():
-            old_filetree_dict = old_filetree[key]['sub_files']
+    #elif len(old_filetree.keys()) == 1:
+    #    key = [k for k in old_filetree.keys()][0]
+    #    if 'sub_files' in old_filetree[key].keys():
+    #        old_filetree_dict = old_filetree[key]['sub_files']
+    elif is_verbose(verbose, 'warn'):
+        say('warn', None, verbose, "No valid old filetree data found. Will backup EVERYTHING.")
 
 
     # create backup dir if not existing
     if not (os.path.exists(dst_filepath) and os.isdir(dst_filepath)):
-    if is_verbose(verbose, 'note'):
-        say('note', None, verbose, f"Creating Directory '{dst_filepath}'")
-    if not dry_run:
-        os.makedirs(dst_filepath)
+        if is_verbose(verbose, 'note'):
+            say('note', None, verbose, f"Creating Directory '{dst_filepath}'")
+        if not dry_run:
+            os.makedirs(dst_filepath)
 
 
     
