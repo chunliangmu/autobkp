@@ -81,7 +81,7 @@ def _get_dir_metadata(src_path: str) -> float:
 
 
 
-def _get_bkp_filename(dst_path: str, compress: str = False) -> str:
+def _get_bkp_filename(dst_path: str, compress: bool|str = False) -> str:
     """Get backup file path from src file path.
 
     dst_path: str
@@ -97,35 +97,36 @@ def _get_bkp_filename(dst_path: str, compress: str = False) -> str:
 
 
 def _save_bkp_file(
-    src_path: str, dst_path: str,
-    action: str = 'copy',
-    dry_run: bool = False,
-    compress: str = False,
-    iverbose: int = 4,
+    src_path: str,
+    dst_path: str,
+    action  : str  = 'copy',
+    dry_run : bool = False,
+    compress: bool|str = False,
+    verbose : int  = 4,
 ):
     """Save source file to the destination file.    
     """
     if compress == 'gzip':
         if action in ['copy', 'Copy', 'cp', 'move', 'Move', 'mv']:
-            if iverbose:
+            if verbose:
                 print(f"*   Note:\tgzip-ing '{src_path}' to '{dst_path}'")
             if not dry_run:
                 with open(src_path, 'rb') as src_file:
                     with gzip.open(dst_path, 'wb') as dst_file:
                         dst_file.writelines(src_file)
             #if action in ['move', 'Move', 'mv']:
-            #    if iverbose >= 3:
+            #    if verbose >= 3:
             #        print(f"*   Note:\tRemoving '{src_path}'")
             #    if not dry_run:
             #        os.remove(src_path)
     else:
         if action in ['copy', 'Copy', 'cp']:
-            if iverbose:
+            if verbose:
                 print(f"*   Note:\tCopying '{src_path}' to '{dst_path}'")
             if not dry_run:
                 shutil.copy2(src_path, dst_path, follow_symlinks=False)
         elif action in ['move', 'Move', 'mv']:
-            if iverbose:
+            if verbose:
                 print(f"*   Note:\tMoving '{src_path}' to '{dst_path}'")
             if not dry_run:
                 shutil.copy2(src_path, dst_path)
@@ -144,7 +145,7 @@ def dir_backup(
     ignore_list: list = ['__pycache__', '.ipynb_checkpoints'],
     dry_run  : bool = False,
     top_level: bool = True,
-    iverbose :  int = 4,
+    verbose  :  int = 4,
 ):
     """Recursively backup data from src to dst.
 
@@ -163,7 +164,7 @@ def dir_backup(
         If True, will not compare src files and dst files (if exist) byte by byte;
 
     dry_run: bool
-        Print what will be done (if iverbose >= 3) instead of actually doing.
+        Print what will be done (if verbose >= 3) instead of actually doing.
 
     bkp_old_dst_files: bool
         Whether or not to backup existing destination files if it is older.
@@ -176,7 +177,7 @@ def dir_backup(
         Do not backup files/folders within this list at all.
         Only check this if src_path points to a folder.
 
-    iverbose: int
+    verbose: int
         Wehther errors, warnings, notes, and debug info should be printed on screen. 
 
     Returns
@@ -199,15 +200,15 @@ def dir_backup(
     # safety check: if file exists
     #     lexist() because we want to backup symbolic links as well
     if not os.path.lexists(src_path):
-        if is_verbose(iverbose, 'err'):
-            say('err', 'dir_backup()', iverbose, f"File '{src_path}' does not exist.")
+        if is_verbose(verbose, 'err'):
+            say('err', 'dir_backup()', verbose, f"File '{src_path}' does not exist.")
         return no_src_peeked, no_src_backed
     
     no_src_peeked += 1
     if os.path.isfile(src_path) or os.path.islink(src_path):
         if os.path.islink(src_path):
             # warn
-            if iverbose >= 2:
+            if verbose >= 2:
                 print(f"**  Warning: dir_backup(...):\n" + \
                       f"\tWill not backup content in the folder pointed by symbolic link '{src_path}'.")
                 
@@ -215,7 +216,7 @@ def dir_backup(
             with open(src_path, 'rb'):
                 pass
         except PermissionError:
-            if iverbose:
+            if verbose:
                 print(f"*** Error: dir_backup(...):\n" + \
                       f"\tPermission Error on file '{dst_path}'.")
         else:
@@ -232,19 +233,19 @@ def dir_backup(
                         if os.path.lexists(dst_path_new) and filecmp.cmp(dst_path, dst_path_new):
                             pass
                         elif bkp_old_dst_files:
-                            _save_bkp_file(dst_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, iverbose)
+                            _save_bkp_file(dst_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, verbose)
                             no_src_backed += 1
                 elif bkp_old_dst_files:
                     dst_path_new = _get_bkp_filename(dst_path, bkp_old_dst_files)
-                    _save_bkp_file(dst_path, dst_path_new, 'move', dry_run, bkp_old_dst_files, iverbose)
+                    _save_bkp_file(dst_path, dst_path_new, 'move', dry_run, bkp_old_dst_files, verbose)
 
             # now copy
             if do_copy:
                 try:
-                    _save_bkp_file(src_path, dst_path, 'copy', dry_run, False, iverbose)
+                    _save_bkp_file(src_path, dst_path, 'copy', dry_run, False, verbose)
                     no_src_backed += 1
                 except FileNotFoundError:
-                    if iverbose:
+                    if verbose:
                         print(f"*** Error: dir_backup(...):\n" + \
                       f"\tCannot copy to '{dst_path}'.")
                 except shutil.SameFileError:
@@ -253,14 +254,14 @@ def dir_backup(
                     if os.path.lexists(dst_path_new) and filecmp.cmp(src_path, dst_path_new):
                         pass
                     else:
-                        _save_bkp_file(src_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, iverbose)
+                        _save_bkp_file(src_path, dst_path_new, 'copy', dry_run, bkp_old_dst_files, verbose)
                         no_src_backed += 1
                 
 
     elif os.path.isdir(src_path):
         # create dst dir if non-existent
         if not os.path.exists(dst_path):
-            if iverbose:
+            if verbose:
                 print(f"*   Note:\tCreating Directory '{dst_path}'")
             if not dry_run:
                 os.makedirs(dst_path)
@@ -269,7 +270,7 @@ def dir_backup(
             if filename not in ignore_list:
                 src_path_new = f'{src_path}{sep}{filename}'
                 dst_path_new = f'{dst_path}{sep}{filename}'
-                if (iverbose >= 3 and top_level) or (iverbose >= 4 and os.path.isdir(src_path_new)):
+                if (verbose >= 3 and top_level) or (verbose >= 4 and os.path.isdir(src_path_new)):
                     print(f"\nWorking on sub-folder {src_path_new}...")
                     if top_level:
                         print(f"({no_src_peeked} files looked, {no_src_backed} files backed up so far.\n)")
@@ -279,7 +280,7 @@ def dir_backup(
                     # archive the entire dir
                     dst_path_new_bkp = _get_bkp_filename_format(dst_path_new, _get_dir_mtime(src_path_new))
                     if not os.path.exists(f'{dst_path_new_bkp}.tar.gz'):
-                        if iverbose:
+                        if verbose:
                             print(
                                 f"*   Note:\tMaking archive of folder '{filename}' in path '{src_path}'",
                                 f"at file '{dst_path_new_bkp}'.tar.gz")
@@ -295,7 +296,7 @@ def dir_backup(
                         gztar_list=gztar_list,
                         ignore_list=ignore_list,
                         top_level = False,
-                        dry_run=dry_run, iverbose=iverbose,
+                        dry_run=dry_run, verbose=verbose,
                         )
                     no_src_peeked += new_src_peeked
                     no_src_backed += new_src_backed
@@ -368,8 +369,8 @@ def get_file_tree(
     # safety check: if file exists
     #     lexist() because we want to backup symbolic links as well
     if not os.path.lexists(src_path):
-        if is_verbose(iverbose, 'err'):
-            say('err', 'get_file_tree()', iverbose, f"File '{src_path}' does not exist.")
+        if is_verbose(verbose, 'err'):
+            say('err', 'get_file_tree()', verbose, f"File '{src_path}' does not exist.")
         return None
 
     
@@ -387,8 +388,8 @@ def get_file_tree(
     if os.path.isfile(src_path) or os.path.islink(src_path):
         if os.path.islink(src_path):
             # warn
-            if is_verbose(iverbose, 'warn'):
-                say('warn', 'get_file_tree()', iverbose,
+            if is_verbose(verbose, 'warn'):
+                say('warn', 'get_file_tree()', verbose,
                     f"Will not backup content in the folder pointed by symbolic link '{src_path}'")
                 
         try:
@@ -396,8 +397,8 @@ def get_file_tree(
             with open(src_path, 'rb'):
                 pass
         except PermissionError:
-            if is_verbose(iverbose, 'err'):
-                say('err', 'get_file_tree()', iverbose, f"\tPermission Error on file '{src_path}'. Skipping this.")
+            if is_verbose(verbose, 'err'):
+                say('err', 'get_file_tree()', verbose, f"\tPermission Error on file '{src_path}'. Skipping this.")
             return None
         else:
             ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
@@ -448,7 +449,7 @@ def backup(
     ignore_list : set|list = {'__pycache__', '.ipynb_checkpoints'},
     dry_run     : bool = False,
     top_level   : bool = True,
-    iverbose    :  int = 4,
+    verbose    :  int = 4,
 ):
     """Backup data from src to dst.
 
@@ -469,7 +470,7 @@ def backup(
         If True, will not compare src files and dst files (if exist) byte by byte;
 
     dry_run: bool
-        Print what will be done (if iverbose >= 3) instead of actually doing.
+        Print what will be done (if verbose >= 3) instead of actually doing.
 
     bkp_old_dst_files: bool
         Whether or not to backup existing destination files if it is older.
@@ -482,7 +483,7 @@ def backup(
         Do not backup files/folders within this list at all.
         Only check this if src_path points to a folder.
 
-    iverbose: int
+    verbose: int
         Wehther errors, warnings, notes, and debug info should be printed on screen. 
 
     Returns
