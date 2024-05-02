@@ -694,10 +694,20 @@ def backup(
     
 
     # do backup
+
+    new_filetree_dict = new_filetree[src_filename]['sub_files']
+    old_filetree_dict = {}
+    if src_filename in old_filetree.keys() and 'sub_files' in old_filetree[src_filename].keys():
+        old_filetree_dict = old_filetree[src_filename]['sub_files']
+    elif len(old_filetree.keys()) == 1:
+        key = [k for k in old_filetree.keys()][0]
+        if 'sub_files' in old_filetree[key].keys():
+            old_filetree_dict = old_filetree[key]['sub_files']
+    
     _backup_sub(
         src_path, dst_path,
-        new_filetree = new_filetree,
-        old_filetree = old_filetree,
+        new_filetree = new_filetree_dict,
+        old_filetree = old_filetree_dict,
         filecmp_shallow = filecmp_shallow,
         dry_run = dry_run,
         verbose = verbose,
