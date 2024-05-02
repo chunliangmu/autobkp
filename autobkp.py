@@ -658,6 +658,7 @@ def backup(
     dst_path = os.path.normpath(dst_path)
     if src_filename is None:
         src_filename = os.path.basename(src_path)
+    dst_filepath = f'{dst_path}{sep}{fname}'
     metadata = {}
 
     
@@ -693,8 +694,7 @@ def backup(
             say('note', None, verbose, f"Read old filetree data from '{latest_filetree_filename}'.")
     
 
-    # do backup
-
+    # normalize filetrees for backup comparison
     new_filetree_dict = new_filetree[src_filename]['sub_files']
     old_filetree_dict = {}
     if src_filename in old_filetree.keys() and 'sub_files' in old_filetree[src_filename].keys():
@@ -703,9 +703,20 @@ def backup(
         key = [k for k in old_filetree.keys()][0]
         if 'sub_files' in old_filetree[key].keys():
             old_filetree_dict = old_filetree[key]['sub_files']
+
+
+    # create backup dir if not existing
+    if not (os.path.exists(dst_filepath) and os.isdir(dst_filepath)):
+    if is_verbose(verbose, 'note'):
+        say('note', None, verbose, f"Creating Directory '{dst_filepath}'")
+    if not dry_run:
+        os.makedirs(dst_filepath)
+
+
     
+    # do backup
     _backup_sub(
-        src_path, dst_path,
+        src_path, dst_filepath,
         new_filetree = new_filetree_dict,
         old_filetree = old_filetree_dict,
         filecmp_shallow = filecmp_shallow,
@@ -721,6 +732,6 @@ def backup(
         shutil.copy2(new_filetree_filename, latest_filetree_filename)
 
     if is_verbose(verbose, 'note'):
-        say('note', None, verbose, f"\t--- All done ---")
+        say('note', None, verbose, f"\n\n\n\t\t--- All done ---\n\n\n")
 
     return new_filetree
