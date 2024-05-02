@@ -53,7 +53,7 @@ def _get_dir_mtime(src_path: str) -> float:
 
 
 
-def _get_dir_metadata(src_path: str) -> float:
+def _get_dir_metadata(src_path: str) -> dict:
     """Recursively get the metadata (newest mtime & total size) for a dir.
 
     Ignores things in symbolic links.
@@ -63,13 +63,12 @@ def _get_dir_metadata(src_path: str) -> float:
     
     """
     data = {
-        'size' : os.path.getsize( src_path),
-        'mtime': os.path.getmtime(src_path),
+        'size' : os.path.getsize( src_path),    # int
+        'mtime': os.path.getmtime(src_path),    # float
     }
     if os.path.isdir(src_path):
         for filename in os.listdir(src_path):
-            src_path_new = f'{src_path}{sep}{filename}'
-            new_data = _get_dir_metadata(src_path_new)
+            new_data = _get_dir_metadata(f'{src_path}{sep}{filename}')
             data['size'] += new_data['size']
             if new_data['mtime'] > data['mtime']:
                 data['mtime'] = new_data['mtime']
@@ -77,19 +76,21 @@ def _get_dir_metadata(src_path: str) -> float:
 
 
 
-def _get_bkp_filename(dst_path: str, compress: bool|str = False) -> str:
-    """Get backup file path from src file path.
-
-    dst_path: str
-        path to a file. Must not end with '/'.
+if False:
+    # commented
+    def _get_bkp_filename(dst_path: str, compress: bool|str = False) -> str:
+        """Get backup file path from src file path.
     
-    """
-    dst_path = os.path.normpath(dst_path)
-    dst_mtime = _get_dir_mtime(dst_path)
-    dst_path_new = _get_bkp_filename_format(dst_path, dst_mtime)
-    if compress == 'gzip':
-        dst_path_new = f'{dst_path_new}.gz'
-    return dst_path_new
+        dst_path: str
+            path to a file. Must not end with '/'.
+        
+        """
+        dst_path = os.path.normpath(dst_path)
+        dst_mtime = _get_dir_mtime(dst_path)
+        dst_path_new = _get_bkp_filename_format(dst_path, dst_mtime)
+        if compress == 'gzip':
+            dst_path_new = f'{dst_path_new}.gz'
+        return dst_path_new
 
 
 def _save_bkp_file(
@@ -102,34 +103,44 @@ def _save_bkp_file(
 ):
     """Save source file to the destination file.    
     """
-    if compress == 'gzip':
-        if action in ['copy', 'Copy', 'cp', 'move', 'Move', 'mv']:
-            if verbose:
-                print(f"*   Note:\tgzip-ing '{src_path}' to '{dst_path}'")
+    if compress:# == 'gzip':
+        # sanity check
+        if is_verbose(verbose, 'warn') and compress not in {'gzip'}:
+            say('warn', None, verbose,
+                f"Unrecognized compression method {compress=},",
+                "Will compress with gzip instead.",
+            )
+
+        # do stuff
+        if action in {'copy', 'Copy', 'cp', 'move', 'Move', 'mv'}:
+            if is_verbose(verbose, 'note'):
+                say('note', None, verbose, f"gzip-ing '{src_path}' to '{dst_path}'")
             if not dry_run:
                 with open(src_path, 'rb') as src_file:
                     with gzip.open(dst_path, 'wb') as dst_file:
-                        dst_file.writelines(src_file)
-            #if action in ['move', 'Move', 'mv']:
-            #    if verbose >= 3:
-            #        print(f"*   Note:\tRemoving '{src_path}'")
+                        shutil.copyfileobj(src_file, dst_file)
+                        #dst_file.writelines(src_file)
+            #if action in {'move', 'Move', 'mv'}:
+            #    if is_verbose(verbose, 'note'):
+            #        say('note', None, verbose, f"Removing '{src_path}'")
             #    if not dry_run:
             #        os.remove(src_path)
+            return
     else:
-        if action in ['copy', 'Copy', 'cp']:
-            if verbose:
-                print(f"*   Note:\tCopying '{src_path}' to '{dst_path}'")
+        if action in {'copy', 'Copy', 'cp', 'move', 'Move', 'mv'}:
+            if is_verbose(verbose, 'note'):
+                say('note', None, verbose, f"Copying '{src_path}' to '{dst_path}'")
             if not dry_run:
                 shutil.copy2(src_path, dst_path, follow_symlinks=False)
-        elif action in ['move', 'Move', 'mv']:
-            if verbose:
-                print(f"*   Note:\tMoving '{src_path}' to '{dst_path}'")
-            if not dry_run:
-                shutil.copy2(src_path, dst_path)
-        else:
-            raise NotImplementedError
+            #if action in {'move', 'Move', 'mv'}:
+            #    if is_verbose(verbose, 'note'):
+            #        say('note', None, verbose, f"Removing '{src_path}'")
+            #    if not dry_run:
+            #        os.remove(src_path)
+            return
+    if is_verbose(verbose, 'fatal'):
+        raise NotImplementedError(f"Unrecognized {action=}")
     return
-
 
 
 def dir_backup(
