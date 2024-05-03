@@ -230,12 +230,12 @@ def get_filetree(
                 say('warn', None, verbose,
                     f"Will not backup content in the folder pointed by symbolic link '{src_path}'")
                 
-        #try:
-        #    # testing if we have read permission
-        #    with open(src_path, 'rb'):
-        #        pass
-        #except PermissionError:
-        if not os.access(src_path, os.R_OK):
+        try:
+            # testing if we have read permission
+            with open(src_path, 'rb'):
+                pass
+        except PermissionError:
+        #if not os.access(src_path, os.R_OK):
             if is_verbose(verbose, 'err'):
                 say('err', None, verbose, f"\tPermission Error on file '{src_path}': No read access. Skipping this.")
             return None
