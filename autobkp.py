@@ -395,6 +395,7 @@ def backup(
     gztar_list  : set[str]|list[str] = {'.git'},
     ignore_list : set[str]|list[str] = {'__pycache__', '.ipynb_checkpoints'},
     dry_run     : bool = False,
+    log_lvl     : bool|int = logging.DEBUG,
     verbose     : int  = 4,
 ) -> dict:
     """Backup data from src to dst.
@@ -424,19 +425,18 @@ def backup(
         If True, will not compare src files and dst files (if exist) byte by byte;
             They will be considered true if they have the same size and modification time.
 
-    dry_run: bool
-        Print what will be done (if verbose >= 3) instead of actually doing.
-
-    bkp_old_dst_files: bool
-        Whether or not to backup existing destination files if it is older.
-        If == 'gzip', will compress the file while saving.
-
     gztar_list: list
         make an archive for folder names matching this list.
 
     ignore_list: list
         Do not backup files/folders within this list at all.
         Only check this if src_path points to a folder.
+
+    dry_run: bool
+        Print what will be done (if verbose >= 3) instead of actually doing.
+
+    do_log : bool
+        If true, will auto log to files.
 
     verbose: int
         Wehther errors, warnings, notes, and debug info should be printed on screen. 
@@ -455,11 +455,31 @@ def backup(
     dst_filepath = f'{dst_path}{sep}{src_filename}'
     metadata = {}
 
+    
+    top_timestamp_str = _get_timestamp_str(time.time())
+    if do_log:
+        if isinstance(verbose, int):
+            # add auto logging
+            log_filename = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{top_timestamp_str}.log"
+            logging.basicConfig(filename=log_filename, level=logging.DEBUG)
+            verbose = (verbose, (None, logging.getLogger(__name__)))
+            if is_verbose(verbose, 'note'):
+                say('note', None, verbose,
+                    f"Logging to '{log_filename}',",
+                    f"under {__name__=}.",
+                )
+        else:
+            raise TypeError(f"{type(verbose)= } should be int")
+    
+
     if is_verbose(verbose, 'note'):
+        python_time_start = datetime.utcnow()
         say('note', None, verbose,
             f"\n\n\tBeginning backup ({dry_run=}).\n\n",
             f"{src_path=}",
             f"{dst_filepath=}",
+            "\n",
+            f"Start: {python_time_start.isoformat()}",
             "\n",
             "Scanning file tree...\t",
         )
@@ -471,7 +491,7 @@ def backup(
 
 
     # save new filetree
-    new_filetree_filename    = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{_get_timestamp_str(time.time())}.json"
+    new_filetree_filename    = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{top_timestamp_str}.json"
     if is_verbose(verbose, 'note'):
         say('note', None, verbose, f"Writing file tree data to '{new_filetree_filename}'")
     if not dry_run:
@@ -523,11 +543,12 @@ def backup(
             os.makedirs(dst_filepath)
 
     if is_verbose(verbose, 'note'):
-        say('note', None, verbose,
-            "Filetree read complete.",
-            f"\n\n\tBeginning backup...\n\n",
-        )
-
+        say('note', None, verbose, "Filetree read complete.")
+        python_time_ended = datetime.utcnow()
+        python_time__used  = python_time_ended - python_time_start
+        say('note', None, verbose, f"Now  : {python_time_ended.isoformat()}\nTime Used: {python_time__used}\n")
+        say('note', None, verbose, f"\n\n\tBeginning backup...\n\n")
+        
     
     # do backup
     _backup_sub(
@@ -545,8 +566,13 @@ def backup(
         say('note', None, verbose, f"Overwriting file tree data from '{new_filetree_filename}' to '{latest_filetree_filename}'")
     if not dry_run:
         shutil.copy2(new_filetree_filename, latest_filetree_filename)
+        
 
+    # record time used
     if is_verbose(verbose, 'note'):
+        python_time_ended = datetime.utcnow()
+        python_time__used  = python_time_ended - python_time_start
+        say('note', None, verbose, f"Ended: {python_time_ended.isoformat()}\nTime Used: {python_time__used}\n")
         say('note', None, verbose, f"\n\n\n\t\t--- All done ---\n\n\n")
 
     return new_filetree
