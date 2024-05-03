@@ -436,7 +436,7 @@ def backup(
     dry_run: bool
         Print what will be done (if verbose >= 3) instead of actually doing.
 
-    do_log : bool
+    log_lvl : bool|int
         If true, will auto log to files.
 
     verbose: int
@@ -458,7 +458,7 @@ def backup(
 
     
     top_timestamp_str = _get_timestamp_str(time.time())
-    if do_log:
+    if log_lvl:
         if isinstance(verbose, int):
             # add auto logging
             log_filename = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{top_timestamp_str}.log"
