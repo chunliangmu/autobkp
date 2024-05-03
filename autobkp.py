@@ -153,7 +153,7 @@ def get_filetree(
     ignore_list : set[str]|list[str] = {'__pycache__', '.ipynb_checkpoints'},
     verbose     : int  = 4,
 ) -> None|tuple[str, dict]:
-    """Scan src_path and Get a dict of its tree of file structures.
+    """Recursively scan src_path and Get a dict of its tree of file structures.
 
     Parameters
     ----------
@@ -213,6 +213,7 @@ def get_filetree(
     ans = {
         'type' : '',
         #'name' : '',    # not used
+        'no_f' : 1,     # no of files in the directory / file
         'size' : 0,
         'use_gztar': False,    # str for filename filetype type suffix
         #'mtime' : 0.,   # not used
@@ -260,6 +261,9 @@ def get_filetree(
             # remove invalid files
             #ans['sub_files'] = [sub_file for sub_file in sub_files_list if sub_file is not None]
             ans['sub_files'] = {sub_file[0]: sub_file[1] for sub_file in sub_files_list if sub_file is not None}
+            ans['no_f']     += np.sum([
+                ans['sub_files'][sub_filename]['no_f'] for sub_filename in ans['sub_files'].keys()
+            ])
             ans['size']      = os.path.getsize(src_path) + int(np.sum([
                 ans['sub_files'][sub_filename]['size'] for sub_filename in ans['sub_files'].keys()
             ]))
@@ -290,7 +294,7 @@ def _backup_sub(
     dry_run     : bool,
     verbose     : int,
 ):
-    """Sub process for the backup function.
+    """Recursive sub process for the backup function.
     
     Will compress and save everything to new destination.
     """
@@ -329,8 +333,8 @@ def _backup_sub(
                     
         # do backup
         if not do_backup:
-            if is_verbose(verbose, 'note'):
-                say('note', None, verbose, f"Skipping {new_filedata['type']} '{src_filepath}'")
+            if is_verbose(verbose, 'info'):
+                say('info', None, verbose, f"Skipping {new_filedata['type']} '{src_filepath}'")
         else:
             if new_filedata['type'] in {'file', 'link'}:
                 dst_filepath = _get_bkp_filename(
