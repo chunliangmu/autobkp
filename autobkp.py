@@ -294,14 +294,21 @@ def _backup_sub(
     filecmp_shallow : bool,
     dry_run     : bool,
     verbose     : int,
-):
+) -> tuple[int, int, int, int, int]:
     """Recursive sub process for the backup function.
     
     Will compress and save everything to new destination.
+
+    Returns: no_skip, no_copy, no_tgzf, no_tgz, no_dir
     """
 
     COMPRESS = 'gzip'
     compress = COMPRESS
+    no_skip = 0
+    no_copy = 0
+    no_tgzf = 0  # no of files in tgz file
+    no_tgz  = 0  # no of tgz file
+    no_dir  = 0
     
     for fname in new_filetree.keys():
         new_filedata      = new_filetree[fname]
@@ -309,10 +316,10 @@ def _backup_sub(
         dst_filepath_base = f'{dst_path}{sep}{fname}'
         old_filedata = old_filetree[fname] if fname in old_filetree.keys() and isinstance(old_filetree[fname], dict) else {}
         # sanity check
-        if not {'type', 'size', 'mtime_utc', 'use_gztar'}.issubset(new_filedata.keys()):
+        if not {'type', 'no_f', 'size', 'mtime_utc', 'use_gztar'}.issubset(new_filedata.keys()):
             if is_verbose(verbose, 'fatal'):
                 raise ValueError(
-                    f"filetree corruption: 'type', 'size', 'mtime_utc', 'use_gztar' should be in {new_filedata.keys()=} but it's not.")
+                    f"filetree corruption: 'type', 'no_f', 'size', 'mtime_utc', 'use_gztar' should be in {new_filedata.keys()=} but it's not.")
             do_backup = False
         # decide if the file has already been backed up
         else:
@@ -336,6 +343,7 @@ def _backup_sub(
         if not do_backup:
             if is_verbose(verbose, 'info'):
                 say('info', None, verbose, f"Skipping {new_filedata['type']} '{src_filepath}'")
+            no_skip += new_filedata['no_f']
         else:
             if new_filedata['type'] in {'file', 'link'}:
                 dst_filepath = _get_bkp_filename(
@@ -345,6 +353,7 @@ def _backup_sub(
                         f"File '{dst_filepath}' already exists- will overwrite. This should NOT have happened.")
                     
                 _save_bkp_file(src_filepath, dst_filepath, action='copy', dry_run=dry_run, compress=compress, verbose=verbose)
+                no_copy += new_filedata['no_f']
                 
             elif new_filedata['type'] in {'dir'}:
                 
@@ -361,6 +370,8 @@ def _backup_sub(
                         say('note', None, verbose, f"Archiving folder '{src_filepath}' to '{dst_filepath_noext}.tar.gz'")
                     if not dry_run:
                         shutil.make_archive(dst_filepath_noext, format='gztar', root_dir=src_path, base_dir=fname)
+                    no_tgzf += new_filedata['no_f']
+                    no_tgz  += 1
                         
                 else:
                     # go to deeper level
@@ -376,7 +387,7 @@ def _backup_sub(
                     if fname in old_filetree.keys():
                         old_filedata = old_filetree[fname]
                 
-                    _backup_sub(
+                    new_no_skip, new_no_copy, new_no_tgzf, new_no_tgz, new_no_dir = _backup_sub(
                         src_filepath, dst_filepath,
                         new_filetree = new_filedata['sub_files'],
                         old_filetree = old_filedata['sub_files'] if 'sub_files' in old_filedata.keys() else {},
@@ -384,7 +395,13 @@ def _backup_sub(
                         dry_run = dry_run,
                         verbose = verbose,
                     )
-    return
+                    no_skip += new_no_skip
+                    no_copy += new_no_copy
+                    no_tgzf += new_no_tgzf
+                    no_tgz  += new_no_tgz
+                    no_dir  += new_no_dir
+                    no_dir  += 1
+    return no_skip, no_copy, no_tgzf, no_tgz, no_dir
 
 
 
@@ -484,7 +501,9 @@ def backup(
     if is_verbose(verbose, 'note'):
         python_time_start = datetime.utcnow()
         say('note', None, verbose,
-            f"\n\n\tBeginning backup ({dry_run=}).\n\n",
+            "\n\n",
+            f"Beginning backup ({dry_run=})",
+            "\n",
             f"{src_path=}",
             f"{dst_filepath=}",
             "\n",
@@ -498,11 +517,13 @@ def backup(
     ans = get_filetree(src_path, src_filename=src_filename, gztar_list=gztar_list, ignore_list=ignore_list)
     new_filetree = {ans[0]: ans[1]}
 
+    no_files_total = ans[1]['no_f']
+    say('note', None, verbose, f"Scanned {no_files_total} files.")
+
 
     # save new filetree
     new_filetree_filename    = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{top_timestamp_str}.json"
-    if is_verbose(verbose, 'note'):
-        say('note', None, verbose, f"Writing file tree data to '{new_filetree_filename}'")
+    say('note', None, verbose, f"Writing file tree data to '{new_filetree_filename}'")
     if not dry_run:
         with open(new_filetree_filename, 'w') as f:
             json_dump(new_filetree, f, metadata)
@@ -520,15 +541,12 @@ def backup(
             old_filetree = json_load(f)
     except JSONDecodeError:
         old_filetree = {}
-        if is_verbose(verbose, 'err'):
-            say('err', None, verbose, "Corrupted old filetree data. Will ignore old file tree and backup EVERYTHING.")
+        say('err', None, verbose, "Corrupted old filetree data. Will ignore old file tree and backup EVERYTHING.")
     except FileNotFoundError:
         old_filetree = {}
-        if is_verbose(verbose, 'warn'):
-            say('warn', None, verbose, "No old filetree data found. Will create one.")
+        say('warn', None, verbose, "No old filetree data found. Will create one.")
     else:
-        if is_verbose(verbose, 'note'):
-            say('note', None, verbose, f"Read old filetree data from '{latest_filetree_filename}'.")
+        say('note', None, verbose, f"Read old filetree data from '{latest_filetree_filename}'.")
     
 
     # normalize filetrees for backup comparison
@@ -546,8 +564,7 @@ def backup(
 
     # create backup dir if not existing
     if not (os.path.exists(dst_filepath) and os.path.isdir(dst_filepath)):
-        if is_verbose(verbose, 'note'):
-            say('note', None, verbose, f"Creating Directory '{dst_filepath}'")
+        say('note', None, verbose, f"Creating Directory '{dst_filepath}'")
         if not dry_run:
             os.makedirs(dst_filepath)
 
@@ -555,12 +572,12 @@ def backup(
         say('note', None, verbose, "Filetree read complete.")
         python_time_ended = datetime.utcnow()
         python_time__used  = python_time_ended - python_time_start
-        say('note', None, verbose, f"Now  : {python_time_ended.isoformat()}\nTime Used: {python_time__used}\n")
+        say('note', None, verbose, "\n", f"Now  : {python_time_ended.isoformat()}", f"Time Used: {python_time__used}\n")
         say('note', None, verbose, f"\n\n\tBeginning backup...\n\n")
         
     
     # do backup
-    _backup_sub(
+    no_skip, no_copy, no_tgzf, no_tgz, no_dir = _backup_sub(
         src_path, dst_filepath,
         new_filetree = new_filetree_dict,
         old_filetree = old_filetree_dict,
@@ -568,11 +585,20 @@ def backup(
         dry_run = dry_run,
         verbose = verbose,
     )
+    no_dir += 1 # counting itself
+    say('note', None, verbose,
+        "\n",
+        f"Skipped  {no_skip} files,",
+        f"Copied   {no_copy} files,",
+        f"Archived {no_tgzf} files into {no_tgz} tar.gz files,",
+        f"Entered  {no_dir} directories,",
+        f"Totally processed {no_skip+no_copy+no_tgz+no_dir}  / {no_files_total} files.",
+        "\n",
+    )
     
 
     # update filetree
-    if is_verbose(verbose, 'note'):
-        say('note', None, verbose, f"Overwriting file tree data from '{new_filetree_filename}' to '{latest_filetree_filename}'")
+    say('note', None, verbose, f"Overwriting file tree data from '{new_filetree_filename}' to '{latest_filetree_filename}'")
     if not dry_run:
         shutil.copy2(new_filetree_filename, latest_filetree_filename)
         
@@ -581,7 +607,7 @@ def backup(
     if is_verbose(verbose, 'note'):
         python_time_ended = datetime.utcnow()
         python_time__used  = python_time_ended - python_time_start
-        say('note', None, verbose, f"Ended: {python_time_ended.isoformat()}\nTime Used: {python_time__used}\n")
+        say('note', None, verbose, "\n", f"Ended: {python_time_ended.isoformat()}", f"Time Used: {python_time__used}\n")
         say('note', None, verbose, f"\n\n\n\t\t--- All done ---\n\n\n")
 
     return new_filetree
