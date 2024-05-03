@@ -43,13 +43,18 @@ def _get_timestamp_str_from_px6(timestamp_px6: int) -> str:
 
 
 
-def _get_bkp_filename(dst_path: str, mtime_utc: str, compress: bool|str = True, verbose: int=4) -> str:
+def _get_bkp_filename(dst_path: str, mtime_utc: str, compress: bool|str = False, verbose: int=4) -> str:
     """f-string combine dst path and mtime into backup file name.
     """
     dst_path = os.path.normpath(dst_path)
     dst_path_new = f'{dst_path}.bkp{mtime_utc}._bkp_'
-    if compress:
+    if not compress or compress in {'gztar'}:
+        # do not add file extension
+        pass
+    elif compress in {'gzip'}:
         dst_path_new += '.gz'
+    elif is_verbose(verbose, 'err'):
+        say('err', None, verbose, f"Unknown compression method '{compress}'. Will assume no extra file extension")
     return dst_path_new
 
 
@@ -91,7 +96,21 @@ def _save_bkp_file(
 ):
     """Save source file to the destination file.    
     """
-    if compress:# == 'gzip':
+
+    if not compress:
+        if action in {'copy', 'Copy', 'cp', 'move', 'Move', 'mv'}:
+            if is_verbose(verbose, 'note'):
+                say('note', None, verbose, f"Copying '{src_path}' to '{dst_path}'")
+            if not dry_run:
+                shutil.copy2(src_path, dst_path, follow_symlinks=False)
+            #if action in {'move', 'Move', 'mv'}:
+            #    if is_verbose(verbose, 'note'):
+            #        say('note', None, verbose, f"Removing '{src_path}'")
+            #    if not dry_run:
+            #        os.remove(src_path)
+            return
+    
+    elif compress in {'gzip'}:
         # sanity check
         if is_verbose(verbose, 'warn') and compress not in {'gzip'}:
             say('warn', None, verbose,
@@ -114,18 +133,10 @@ def _save_bkp_file(
             #    if not dry_run:
             #        os.remove(src_path)
             return
-    else:
-        if action in {'copy', 'Copy', 'cp', 'move', 'Move', 'mv'}:
-            if is_verbose(verbose, 'note'):
-                say('note', None, verbose, f"Copying '{src_path}' to '{dst_path}'")
-            if not dry_run:
-                shutil.copy2(src_path, dst_path, follow_symlinks=False)
-            #if action in {'move', 'Move', 'mv'}:
-            #    if is_verbose(verbose, 'note'):
-            #        say('note', None, verbose, f"Removing '{src_path}'")
-            #    if not dry_run:
-            #        os.remove(src_path)
-            return
+    elif is_verbose(verbose, 'err'):
+        say('err', None, verbose, f"Unrecognized compression method {compress=}")
+        return
+            
     if is_verbose(verbose, 'err'):
         say('err', None, verbose, f"Unrecognized {action=}")
     return
@@ -184,7 +195,7 @@ def get_filetree(
             'type': str
                 'dir', 'file', or 'link'
             'size': int
-            'use_gztar': bool|str (str for filename filetype type suffix)
+            'compr_mth': str    # compression method ('' for not compressing)
             'mtime_utc': int
             'sub_files': dict
                 Only exist if 'type'=='dir'
@@ -211,7 +222,7 @@ def get_filetree(
         #'name' : '',    # not used
         'no_f' : 1,     # no of files in the directory / file
         'size' : 0,
-        'use_gztar': False,    # str for filename filetype type suffix
+        'compr_mth': '',    # str for compression method ('' for not compressing)
         'mtime_px6': 0,     # int for POSIX time *1e6
         'mtime_utc': '',
         #'sub_files': None,
@@ -219,11 +230,9 @@ def get_filetree(
 
 
     if os.path.isfile(src_path) or os.path.islink(src_path):
-        if os.path.islink(src_path):
-            # warn
-            if is_verbose(verbose, 'warn'):
-                say('warn', None, verbose,
-                    f"Will not backup content in the folder pointed by symbolic link '{src_path}'")
+        if is_verbose(verbose, 'warn') and os.path.islink(src_path):
+            say('warn', None, verbose,
+                f"Will not backup content in the folder pointed by symbolic link '{src_path}'")
                 
         try:
             # testing if we have read permission
@@ -239,6 +248,7 @@ def get_filetree(
             #ans['name'] = src_filename
             ans_stat = os.stat(src_path)
             ans['size'] = ans_stat.st_size #os.path.getsize(src_path)
+            ans['compr_mth'] = 'gzip'
             ans['mtime_px6'] = _get_timestamp_px6(ans_stat.st_mtime)
             #ans['mtime_utc'] = _get_timestamp_str(ans_stat.st_mtime)
 
@@ -265,11 +275,12 @@ def get_filetree(
             ans['size']      = ans_stat.st_size + int(np.sum([
                 ans['sub_files'][sub_filename]['size'] for sub_filename in ans['sub_files'].keys()
             ]))
+            ans['compr_mth'] = ''
             ans['mtime_px6'] = int(max(_get_timestamp_px6(ans_stat.st_mtime), np.max([
                 ans['sub_files'][sub_filename]['mtime_px6'] for sub_filename in ans['sub_files'].keys()
             ], initial=0)))
         else:
-            ans['use_gztar'] = True
+            ans['compr_mth'] = 'gztar'
             data = _get_dir_metadata(src_path)
             ans['size']  = data['size']
             ans['mtime_px6'] = _get_timestamp_px6(data['mtime'])
@@ -291,7 +302,7 @@ def _backup_sub(
     filecmp_shallow : bool,
     dry_run     : bool,
     verbose     : int,
-) -> tuple[int, int, int, int, int]:
+) -> tuple[int, int, int, int]:
     """Recursive sub process for the backup function.
     
     Will compress and save everything to new destination.
@@ -299,8 +310,6 @@ def _backup_sub(
     Returns: no_skip, no_copy, no_tgz, no_dir
     """
 
-    COMPRESS = 'gzip'
-    compress = COMPRESS
     no_skip = 0
     no_copy = 0
     no_tgz  = 0  # no of tgz file
@@ -312,11 +321,11 @@ def _backup_sub(
         dst_filepath_base = f'{dst_path}{sep}{fname}'
         old_filedata = old_filetree[fname] if fname in old_filetree.keys() and isinstance(old_filetree[fname], dict) else {}
         # sanity check
-        if not {'type', 'no_f', 'size', 'mtime_px6', 'mtime_utc', 'use_gztar'}.issubset(new_filedata.keys()):
+        if not {'type', 'no_f', 'size', 'compr_mth', 'mtime_px6', 'mtime_utc'}.issubset(new_filedata.keys()):
             if is_verbose(verbose, 'fatal'):
                 raise ValueError(
                     f"filetree corruption:"+
-                    f"'type', 'no_f', 'size', 'mtime_px6', 'mtime_utc', 'use_gztar'"+
+                    f"'type', 'no_f', 'size', 'compr_mth', 'mtime_px6', 'mtime_utc'"+
                     f"should be in {new_filedata.keys()=} but it's not.")
             do_backup = False
         # decide if the file has already been backed up
@@ -345,17 +354,17 @@ def _backup_sub(
         else:
             if new_filedata['type'] in {'file', 'link'}:
                 dst_filepath = _get_bkp_filename(
-                    f'{dst_filepath_base}', new_filedata['mtime_utc'], compress=compress, verbose=verbose)
+                    f'{dst_filepath_base}', new_filedata['mtime_utc'], compress=new_filedata['compr_mth'], verbose=verbose)
                 if is_verbose(verbose, 'warn') and os.path.exists(f'{dst_filepath}'):
                     say('warn', None, verbose,
                         f"File '{dst_filepath}' already exists- will overwrite. This should NOT have happened.")
                     
-                _save_bkp_file(src_filepath, dst_filepath, action='copy', dry_run=dry_run, compress=compress, verbose=verbose)
+                _save_bkp_file(src_filepath, dst_filepath, action='copy', dry_run=dry_run, compress=new_filedata['compr_mth'], verbose=verbose)
                 no_copy += new_filedata['no_f']
                 
             elif new_filedata['type'] in {'dir'}:
                 
-                if new_filedata['use_gztar']:
+                if new_filedata['compr_mth'] in {'gztar'}:
                     # archive the entire dir
                     
                     dst_filepath_noext = _get_bkp_filename(
