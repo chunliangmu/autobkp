@@ -24,35 +24,30 @@ import numpy as np
 def _get_timestamp_str(timestamp: float) -> str:
     """Get the str version of time. Returns value in utc and is semi-human-readable.
     """
-    return datetime.utcfromtimestamp(timestamp).strftime("%Y%m%d%H%M%S")
+    return datetime.utcfromtimestamp(timestamp).strftime("%Y%m%d%H%M%S%f")
 
 
-def _get_timestamp_int(timestamp: float) -> int:
+def _get_timestamp_px6(timestamp: float) -> int:
     """Get the int version of time. Returns value in utc and is semi-human-readable.
     """
-    return int(_get_timestamp_str(timestamp))
+    # x1000000 to include the microseconds
+    return int(datetime.utcfromtimestamp(timestamp).timestamp()*1e6)
 
 
-def _get_timestamp_str_from_int(timestamp_utc: int, verbose:int=4) -> str:
+def _get_timestamp_str_from_px6(timestamp_px6: int) -> str:
     """Get the str version of time. Returns value in utc and is semi-human-readable.
     """
-    #return datetime.utcfromtimestamp(timestamp).strftime("%Y%m%d%H%M%S")
-    if isinstance(timestamp_utc, int):
-        return f"{timestamp_utc:014d}"
-    else:
-        if is_verbose(verbose, 'fatal'):
-            raise TypeError(
-                "input timestamp should be of int type. Did you meant to use _get_timestamp_str() instead of _get_timestamp_str_from_int()?")
+    return datetime.fromtimestamp(timestamp_px6/1e6).strftime("%Y%m%d%H%M%S%f")
 
 
 
 
 
-def _get_bkp_filename(dst_path: str, mtime_utc: int, compress: bool|str = True, verbose: int=4) -> str:
+def _get_bkp_filename(dst_path: str, mtime_utc: str, compress: bool|str = True, verbose: int=4) -> str:
     """f-string combine dst path and mtime into backup file name.
     """
     dst_path = os.path.normpath(dst_path)
-    dst_path_new = f'{dst_path}.bkp{_get_timestamp_str_from_int(mtime_utc, verbose)}._bkp_'
+    dst_path_new = f'{dst_path}.bkp{mtime_utc}._bkp_'
     if compress:
         dst_path_new += '.gz'
     return dst_path_new
@@ -217,8 +212,8 @@ def get_filetree(
         'no_f' : 1,     # no of files in the directory / file
         'size' : 0,
         'use_gztar': False,    # str for filename filetype type suffix
-        #'mtime' : 0.,   # not used
-        'mtime_utc': 0,
+        'mtime_px6': 0,     # int for POSIX time *1e6
+        'mtime_utc': '',
         #'sub_files': None,
     }
 
@@ -242,9 +237,10 @@ def get_filetree(
         else:
             ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
             #ans['name'] = src_filename
-            ans['size'] = os.path.getsize(src_path)
-            #ans['mtime'] = os.path.getmtime(src_path)
-            ans['mtime_utc'] = _get_timestamp_int(os.path.getmtime(src_path))
+            ans_stat = os.stat(src_path)
+            ans['size'] = ans_stat.st_size #os.path.getsize(src_path)
+            ans['mtime_px6'] = _get_timestamp_px6(ans_stat.st_mtime)
+            #ans['mtime_utc'] = _get_timestamp_str(ans_stat.st_mtime)
 
     elif os.path.isdir(src_path):
 
@@ -262,22 +258,23 @@ def get_filetree(
             # remove invalid files
             #ans['sub_files'] = [sub_file for sub_file in sub_files_list if sub_file is not None]
             ans['sub_files'] = {sub_file[0]: sub_file[1] for sub_file in sub_files_list if sub_file is not None}
+            ans_stat = os.stat(src_path)
             ans['no_f']      = int(ans['no_f'] + np.sum([
                 ans['sub_files'][sub_filename]['no_f'] for sub_filename in ans['sub_files'].keys()
             ]))
-            ans['size']      = os.path.getsize(src_path) + int(np.sum([
+            ans['size']      = ans_stat.st_size + int(np.sum([
                 ans['sub_files'][sub_filename]['size'] for sub_filename in ans['sub_files'].keys()
             ]))
-            ans['mtime_utc'] = int(max(_get_timestamp_int(os.path.getmtime(src_path)), np.max([
-                ans['sub_files'][sub_filename]['mtime_utc'] for sub_filename in ans['sub_files'].keys()
+            ans['mtime_px6'] = int(max(_get_timestamp_px6(ans_stat.st_mtime), np.max([
+                ans['sub_files'][sub_filename]['mtime_px6'] for sub_filename in ans['sub_files'].keys()
             ], initial=0)))
         else:
             ans['use_gztar'] = True
             data = _get_dir_metadata(src_path)
             ans['size']  = data['size']
-            ans['mtime_utc'] = _get_timestamp_int(data['mtime'])
+            ans['mtime_px6'] = _get_timestamp_px6(data['mtime'])
             
-    #ans['mtime_utc'] = _get_timestamp_int(ans['mtime'])
+    ans['mtime_utc'] = _get_timestamp_str_from_px6(ans['mtime_px6'])
     
     filetree = ans
     return src_filename, filetree
@@ -299,14 +296,13 @@ def _backup_sub(
     
     Will compress and save everything to new destination.
 
-    Returns: no_skip, no_copy, no_tgzf, no_tgz, no_dir
+    Returns: no_skip, no_copy, no_tgz, no_dir
     """
 
     COMPRESS = 'gzip'
     compress = COMPRESS
     no_skip = 0
     no_copy = 0
-    no_tgzf = 0  # no of files in tgz file
     no_tgz  = 0  # no of tgz file
     no_dir  = 0
     
@@ -316,10 +312,12 @@ def _backup_sub(
         dst_filepath_base = f'{dst_path}{sep}{fname}'
         old_filedata = old_filetree[fname] if fname in old_filetree.keys() and isinstance(old_filetree[fname], dict) else {}
         # sanity check
-        if not {'type', 'no_f', 'size', 'mtime_utc', 'use_gztar'}.issubset(new_filedata.keys()):
+        if not {'type', 'no_f', 'size', 'mtime_px6', 'mtime_utc', 'use_gztar'}.issubset(new_filedata.keys()):
             if is_verbose(verbose, 'fatal'):
                 raise ValueError(
-                    f"filetree corruption: 'type', 'no_f', 'size', 'mtime_utc', 'use_gztar' should be in {new_filedata.keys()=} but it's not.")
+                    f"filetree corruption:"+
+                    f"'type', 'no_f', 'size', 'mtime_px6', 'mtime_utc', 'use_gztar'"+
+                    f"should be in {new_filedata.keys()=} but it's not.")
             do_backup = False
         # decide if the file has already been backed up
         else:
@@ -329,12 +327,12 @@ def _backup_sub(
                 if not filecmp_shallow and is_verbose(verbose, 'fatal'):
                     raise NotImplementedError("filecmp_shallow=True has not yet been implemented.")
                     
-                if not {'type', 'size', 'mtime_utc'}.issubset(old_filedata.keys()):
+                if not {'type', 'size', 'mtime_px6'}.issubset(old_filedata.keys()):
                     if is_verbose(verbose, 'err'):
                         say('err', None, verbose,
-                            f"filetree corruption: 'type', 'size', 'mtime_utc' should be in {old_filedata.keys()=}",
+                            f"filetree corruption: 'type', 'size', 'mtime_px6' should be in {old_filedata.keys()=}",
                             "but it's not.")
-                elif (new_filedata['mtime_utc'] == old_filedata['mtime_utc']
+                elif (new_filedata['mtime_px6'] == old_filedata['mtime_px6']
                       and new_filedata['size' ] == old_filedata['size']
                       and new_filedata['type' ] == old_filedata['type']):
                     do_backup = False
@@ -362,7 +360,7 @@ def _backup_sub(
                     
                     dst_filepath_noext = _get_bkp_filename(
                         f'{dst_filepath_base}', new_filedata['mtime_utc'], compress=False, verbose=verbose)
-                    if is_verbose(verbose, 'warn') and not os.path.exists(f'{dst_filepath_noext}.tar.gz'):
+                    if is_verbose(verbose, 'warn') and os.path.exists(f'{dst_filepath_noext}.tar.gz'):
                         say('warn', None, verbose,
                             f"File '{dst_filepath_noext}.tar.gz' already exists- will overwrite. This should NOT have happened.")
                         
@@ -370,7 +368,6 @@ def _backup_sub(
                         say('note', None, verbose, f"Archiving folder '{src_filepath}' to '{dst_filepath_noext}.tar.gz'")
                     if not dry_run:
                         shutil.make_archive(dst_filepath_noext, format='gztar', root_dir=src_path, base_dir=fname)
-                    no_tgzf += new_filedata['no_f']
                     no_tgz  += 1
                         
                 else:
@@ -387,7 +384,7 @@ def _backup_sub(
                     if fname in old_filetree.keys():
                         old_filedata = old_filetree[fname]
                 
-                    new_no_skip, new_no_copy, new_no_tgzf, new_no_tgz, new_no_dir = _backup_sub(
+                    new_no_skip, new_no_copy, new_no_tgz, new_no_dir = _backup_sub(
                         src_filepath, dst_filepath,
                         new_filetree = new_filedata['sub_files'],
                         old_filetree = old_filedata['sub_files'] if 'sub_files' in old_filedata.keys() else {},
@@ -397,11 +394,10 @@ def _backup_sub(
                     )
                     no_skip += new_no_skip
                     no_copy += new_no_copy
-                    no_tgzf += new_no_tgzf
                     no_tgz  += new_no_tgz
                     no_dir  += new_no_dir
                     no_dir  += 1
-    return no_skip, no_copy, no_tgzf, no_tgz, no_dir
+    return no_skip, no_copy, no_tgz, no_dir
 
 
 
@@ -577,7 +573,7 @@ def backup(
         
     
     # do backup
-    no_skip, no_copy, no_tgzf, no_tgz, no_dir = _backup_sub(
+    no_skip, no_copy, no_tgz, no_dir = _backup_sub(
         src_path, dst_filepath,
         new_filetree = new_filetree_dict,
         old_filetree = old_filetree_dict,
@@ -590,8 +586,8 @@ def backup(
         "\n",
         f"Skipped  {no_skip} files,",
         f"Copied   {no_copy} files,",
-        f"Archived {no_tgzf} files into {no_tgz} tar.gz files,",
-        f"Entered  {no_dir} directories,",
+        f"Archived {no_tgz } directories,",
+        f"Entered  {no_dir } directories,",
         f"Totally processed {no_skip+no_copy+no_tgz+no_dir}  / {no_files_total} files.",
         "\n",
     )
