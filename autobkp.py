@@ -262,9 +262,9 @@ def get_filetree(
             # remove invalid files
             #ans['sub_files'] = [sub_file for sub_file in sub_files_list if sub_file is not None]
             ans['sub_files'] = {sub_file[0]: sub_file[1] for sub_file in sub_files_list if sub_file is not None}
-            ans['no_f']     += np.sum([
+            ans['no_f']      = int(ans['no_f'] + np.sum([
                 ans['sub_files'][sub_filename]['no_f'] for sub_filename in ans['sub_files'].keys()
-            ])
+            ]))
             ans['size']      = os.path.getsize(src_path) + int(np.sum([
                 ans['sub_files'][sub_filename]['size'] for sub_filename in ans['sub_files'].keys()
             ]))
