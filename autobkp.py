@@ -460,6 +460,12 @@ def backup(
     top_timestamp_str = _get_timestamp_str(time.time())
     if log_lvl:
         if isinstance(verbose, int):
+            # create backup dir if not existing
+            bkp_meta_dirpath = f"{dst_path}/_bkp_meta_"
+            if not (os.path.exists(bkp_meta_dirpath) and os.path.isdir(bkp_meta_dirpath)):
+                if is_verbose(verbose, 'warn'):
+                    say('warn', None, verbose, f"REGARDLESS OF {dry_run}, Creating Directory '{bkp_meta_dirpath}'")
+                os.makedirs(bkp_meta_dirpath)
             # add auto logging
             log_filename = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{top_timestamp_str}.log"
             with open(log_filename, 'a') as f:
