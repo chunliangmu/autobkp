@@ -462,6 +462,8 @@ def backup(
         if isinstance(verbose, int):
             # add auto logging
             log_filename = f"{dst_path}/_bkp_meta_/{src_filename}.filetree.bkp{top_timestamp_str}.log"
+            with open(log_filename, 'a') as f:
+                pass
             logging.basicConfig(filename=log_filename, level=logging.DEBUG)
             verbose = (verbose, (None, logging.getLogger(__name__)))
             if is_verbose(verbose, 'note'):
