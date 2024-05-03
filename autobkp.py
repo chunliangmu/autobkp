@@ -7,6 +7,7 @@ Author: Chunliang Mu
 from .log import say, is_verbose
 from .readwrite import json_dump, json_load, JSONDecodeError
 
+import logging
 import os
 from os.path import sep
 import shutil
