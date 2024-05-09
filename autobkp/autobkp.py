@@ -607,8 +607,8 @@ def backup(
     
 
     # update filetree
-    say('note', None, verbose, f"Overwriting file tree data from '{new_filetree_filename}' to '{latest_filetree_filename}'")
     if not dry_run:
+        say('note', None, verbose, f"Overwriting file tree data from '{new_filetree_filename}' to '{latest_filetree_filename}'")
         shutil.copy2(new_filetree_filename, latest_filetree_filename)
         
 
