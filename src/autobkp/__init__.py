@@ -5,4 +5,8 @@
 
 Author: Chunliang Mu"""
 
+
+__version__ = '1.0.0'
+
+
 from .autobkp import get_filetree, backup
