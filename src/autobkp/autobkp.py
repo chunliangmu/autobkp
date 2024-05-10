@@ -244,7 +244,15 @@ def get_filetree(
         except PermissionError:
         #if not os.access(src_path, os.R_OK):
             if is_verbose(verbose, 'err'):
-                say('err', None, verbose, f"\tPermission Error on file '{src_path}': No read access. Skipping this.")
+                say('err', None, verbose, f"Permission Error on file '{src_path}': No read access. Skipping this.")
+            return None
+        except IsADirectoryError:
+            # Band-Aid fix- *** pending improvement ***
+            if is_verbose(verbose, 'err'):
+                say('err', None, verbose,
+                    f"'{src_path}' seems to be a file, but is a directory." +
+                    "symbolic link? Skipping this (and anything it points to.)"
+                )
             return None
         else:
             ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
