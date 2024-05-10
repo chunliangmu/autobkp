@@ -9,16 +9,20 @@ Author: Chunliang Mu
 
 Requrie python 3.10+ (since I am using the | operator for type hints)
 
+Basically what it does
+is to copy, timestamp & gzip files
+from your specified folder to another folder,
+and save a list of your file structure,
+so you can copy them to wherever you please
+while retaining a record of version history.
 
 
 
 ## Disclaimer
 
 This project is a *work in progress*.
-Pending major overhaul.
 No guarrantees whatsoever.
-Use it at your own risk.
-Nevertheless, I hope it helps!
+Use it at your own risk!
 
 
 
