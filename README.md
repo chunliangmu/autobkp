@@ -33,7 +33,6 @@ Use it at your own risk!
 	- `python3` (version >= 3.10)
 	- `numpy`
 	- `astropy`
-	- `h5py`
 
 
 
