@@ -15,12 +15,14 @@ import os
 from os.path import sep
 import shutil
 import filecmp
-from datetime import datetime
+from datetime import datetime, UTC
 import time
 import gzip
 import numpy as np
 
 
+def _now():
+    return datetime.now(UTC)
 
 
 
@@ -516,7 +518,7 @@ def backup(
     
 
     if is_verbose(verbose, 'note'):
-        python_time_start = datetime.utcnow()
+        python_time_start = _now()
         say('note', None, verbose,
             "\n\n",
             f"Beginning backup ({dry_run=})",
@@ -587,7 +589,7 @@ def backup(
 
     if is_verbose(verbose, 'note'):
         say('note', None, verbose, "Filetree read complete.")
-        python_time_ended = datetime.utcnow()
+        python_time_ended = _now()
         python_time__used  = python_time_ended - python_time_start
         say('note', None, verbose, "\n", f"Now  : {python_time_ended.isoformat()}", f"Time Used: {python_time__used}\n")
         say('note', None, verbose, f"\n\n\tBeginning backup...\n\n")
@@ -622,7 +624,7 @@ def backup(
 
     # record time used
     if is_verbose(verbose, 'note'):
-        python_time_ended = datetime.utcnow()
+        python_time_ended = _now()
         python_time__used  = python_time_ended - python_time_start
         say('note', None, verbose, "\n", f"Ended: {python_time_ended.isoformat()}", f"Time Used: {python_time__used}\n")
         say('note', None, verbose, f"\n\n\n\t\t--- All done ---\n\n\n")
