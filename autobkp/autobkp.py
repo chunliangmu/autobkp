@@ -161,8 +161,9 @@ def _save_bkp_file(
 def get_filetree(
     src_path: str,
     src_filename: None|str = None,
-    gztar_list  : set[str]|list[str] = {'.git'},
-    ignore_list : set[str]|list[str] = {'__pycache__', '.ipynb_checkpoints'},
+    gztar_list  : set[str]|tuple[str] = {'.git'},
+    ignore_list : set[str]|tuple[str] = {'__pycache__', '.ipynb_checkpoints'},
+    nogzext_list: set[str]|tuple[str] = ('.gz', '.tgz', '.rar', '.zip'),
     verbose     : int  = 4,
 ) -> None|tuple[str, dict]:
     """Recursively scan src_path and Get a dict of its tree of file structures.
@@ -190,6 +191,10 @@ def get_filetree(
         Ignore files/folders within this list at all.
         Only check this if src_path points to a folder.
 
+    nogzext_list: list
+        mark files with given extensions in the list to not do compression.
+        Remember to include the '.' in each ext.
+
     verbose: int
         Wehther errors, warnings, notes, and debug info should be printed on screen. 
 
@@ -213,6 +218,8 @@ def get_filetree(
 
     if src_filename in ignore_list:
         return None
+
+    nogzext_list = tuple(nogzext_list)
         
     # safety check: if file exists
     #     lexist() because we want to backup symbolic links as well
@@ -256,12 +263,16 @@ def get_filetree(
                     "symbolic link? Skipping this (and anything it points to.)"
                 )
             return None
+        except FileNotFoundError:
+            if is_verbose(verbose, 'err'):
+                say('err', None, verbose, f"File '{src_path}' Not Found. Skipping this.")
+            return None
         else:
             ans['type'] = 'file' if os.path.isfile(src_path) else 'link'
             #ans['name'] = src_filename
             ans_stat = os.stat(src_path)
             ans['size'] = ans_stat.st_size #os.path.getsize(src_path)
-            ans['compr_mth'] = 'gzip'
+            ans['compr_mth'] = '' if src_path.endswith(nogzext_list) else 'gzip'
             ans['mtime_px6'] = _get_timestamp_px6(ans_stat.st_mtime)
             #ans['mtime_utc'] = _get_timestamp_str(ans_stat.st_mtime)
 

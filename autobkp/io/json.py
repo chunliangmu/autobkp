@@ -34,6 +34,21 @@ import io
 # Functions
 
 
+# custom type to json native types
+STR_2_TYPE : dict[str, tuple] = {
+    # name: (actual type, json type, other actual type aliases)
+    "numpy.bool_": (np.bool_, bool),
+    "numpy.int32": (np.int32, int, np.dtype('int32')),
+    "numpy.int64": (np.int64, int, np.dtype('int64')),
+    "numpy.float32": (np.float32, float, np.dtype('float32')),
+    "numpy.float64": (np.float64, float, np.dtype('float64')),
+}
+TYPE_2_STR : dict[type|np.dtype, tuple[str, type]] = {ds[0]: (k, ds[1]) for k, ds in STR_2_TYPE.items()}
+for k, ds in STR_2_TYPE.items():
+    for d in ds[2:]:
+        TYPE_2_STR[d] = (k, ds[1])
+TYPE_2_STR_TYPES: tuple = tuple([t if isinstance(t, type) else type(t) for t in TYPE_2_STR.keys()])
+
 
 
 
@@ -157,8 +172,16 @@ def _json_encode(
             pass
         # custom formatting
         #  *** Add new type here! ***
-        elif isinstance( obj, np.bool_):
-            obj = bool(obj)
+        elif isinstance(obj, (type, np.dtype)) and obj in TYPE_2_STR_TYPES:
+            obj = {
+                '_type_': 'type',
+                '_data_': TYPE_2_STR[obj][0],
+            }
+        elif isinstance(obj, TYPE_2_STR_TYPES):
+            obj = {
+                '_type_': TYPE_2_STR[type(obj)][0],
+                '_data_': TYPE_2_STR[type(obj)][1](obj),
+            }
         elif isinstance( obj, tuple ):
             obj = {'_type_': 'tuple', '_data_': list(obj)}
         elif type(obj) is np.ndarray:
@@ -173,7 +196,7 @@ def _json_encode(
             if ignore_unknown_types:
                 return "-NotImplemented-"
             else:
-                raise NotImplementedError(f"_json_encode(): Unknown object type: {type(obj)}")
+                raise NotImplementedError(f"_json_encode(): Unknown object type {type(obj)} from {obj = }")
     return obj
 
 
@@ -197,6 +220,7 @@ def _json_decode(
 
     overwrite_obj: bool
         If False, will copy the obj before modifying to avoid changing the raw data
+            (This behavior is not guaranteed)
         
     load_metadata: bool
         Load meta data from loaded dict (top level only).
@@ -229,6 +253,11 @@ def _json_decode(
                         obj['_data_'],
                         overwrite_obj=overwrite_obj,
                         load_metadata=True, verbose=verbose)
+            elif obj['_type_'] == 'type' and '_data_' in obj.keys() and obj['_data_'] in STR_2_TYPE:
+                return STR_2_TYPE[obj['_data_']][0]
+            elif obj['_type_'] in STR_2_TYPE:
+                if '_data_' in obj.keys():
+                    return STR_2_TYPE[obj['_type_']][0](obj['_data_'])
             elif obj['_type_'] == 'tuple':
                 if '_data_' in obj.keys():
                     return tuple(obj['_data_'])
@@ -237,7 +266,7 @@ def _json_decode(
                     return np.array(obj['_data_'])
             elif obj['_type_'] == 'astropy.units.Quantity':
                 if '_data_' in obj.keys() and '_unit_' in obj.keys():
-                    return units.Quantity(value=obj['_data_'], unit=obj['_unit_'], copy=(not overwrite_obj))
+                    return units.Quantity(value=obj['_data_'], unit=obj['_unit_'])#, copy=(not overwrite_obj))
             else:
                 say('warn', '_json_decode()', verbose,
                     f"Unrecognized obj['_type_']= {obj['_type_']}",
